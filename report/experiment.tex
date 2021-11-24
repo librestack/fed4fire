@@ -1,0 +1,217 @@
+\documentclass[a4paper,12pt]{article}
+
+\title{Comparing performance of IPv6 multicast and unicast for software updates}
+\author{Claudio Calvelli}
+\date{Draft 0.1 \today}
+
+\setlength{\unitlength}{0.01\linewidth}
+
+\newcommand{\TODO}[1]{\par\noindent%
+\hspace*{\fill}%
+\framebox{\parbox{0.9\linewidth}{{\bf TODO: }#1}}%
+\hspace*{\fill}%
+}
+
+\newcommand{\pref}[1]{%
+\ref{#1}%
+\ifnum\thepage=0\pageref{#1}\else\ on page~\pageref{#1}\fi%
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+The librecast project states that ``Multicast is, by definition, the most
+efficient way for multiple nodes to communicate''.  This experiment is
+designed to provide experimental evidence of this efficiency by comparing
+three methods of sending the same data to a large number of nodes, as
+would for example happen when a software update is released. The three
+methods are traditional unicast; a network taking full advantage of
+multicast; and finally a hybrid designed to represent the use of transitional
+technology to address the lack of multicast routing in many networks.
+
+\TODO{Report the actual results after we run the experiment}
+\end{abstract}
+
+\section{Introduction}
+The very first paragraph of RFC 3170 states:
+
+\begin{quotation}
+\noindent
+IP Multicast will play a prominent role on the Internet in the coming
+years.  It is a requirement, not an option, if the Internet is going
+to scale.  Multicast allows application developers to add more
+functionality without significantly impacting the network.
+\end{quotation}
+
+There is a need for some experimental data to back this kind of
+statements.  We concentrate of measuring the impact of {\it software
+updates\/} on the network, because the proliferation of connected
+devices will make software updates a very important target for
+efficient use of the network, and because software updates are
+easy to simulate realistically by measuring the impact of copying
+a large file to a large number of nodes.
+
+To provide evidence for the above statements, we compare the
+following three scenarios:
+
+\begin{itemize}
+\item Traditional unicast: a number of servers send a copy of each
+software update to each client requiring a file for download
+(representing the network activity of a software update)
+\item Full multicast: a number of servers provide the software
+update using multicast, and clients will obtain the updates by
+joining a multicast group and waiting for the data to arrive
+\item Hybrid system: in the absence of multicast routing in a
+majority of nodes, some other technology can work around thia
+problem but without being able to provide the full advantages
+of multicast; we include this to show that there are advantages
+in using the transitional technology provided by librecast,
+but also to show that it cannot provide the full advantages
+of IPv6 multicast.
+\end{itemize}
+
+We run the simulated software updates in a variety of network
+configurations and with a variety of file sizes to simulate the
+impact of different types of updates; in each case we measure network
+use, server load, client load and speed of update for each of the three
+scenarios described, \TODO{Can we measure power consumption as well?}
+
+The rest of this report is structured as follows:
+
+Section~\ref{network} describes the simulated network technology and
+the parameters we vary.
+
+Section~\ref{experiment} describes the experiments we run on each
+set of parameter values.
+
+Section~\ref{results} analyses the result of the experiment and compares
+the efficiency of unicast and multicast.
+
+Section~\ref{future} explores the possibility of further experiments,
+to make the simulation more realistic and more complete.
+
+\section{The simulated network}
+\label{network}
+
+A number of servers (denoted by $\cal S$) provide software updates for
+${\cal C} = {\cal L} * 2^{{\cal R} - 1}$ clients; there are ${\cal R}$ routers
+in the network path between each server and each client, and the clients
+are connected to a LAN, at ${\cal L}$ clients on each local network.
+For this experiments, all the servers share a LAN.
+This is of course a simplified view of a real system but allows to
+compare the impact of various methods of software updates in a variety
+of circumstances.
+
+The last experimental parameters indicates the size of the software updates
+as the number ${\cal N}$ of bytes contained in it.  In the real world,
+clients may be more or less up-to-date so they each one may request a
+subset of all updates available; for this experiment we assume that
+all clients have all previous updates and are just requesting the latest
+one; a future experiment may consider the more complex ``real life''
+scenario.
+
+Figure~\pref{s3:r3:l2}
+\begin{figure}[bp]
+\begin{center}
+\begin{picture}(90,65)
+\multiput(20,58)(25,0){3}{\makebox(0,0){\rm\bf S}}
+\multiput(20,52)(25,0){3}{\line(0,1){3}}
+\put(20,52){\line(1,0){50}}
+\put(45,49){\line(0,1){3}}
+\put(45,46){\makebox(0,0){\rm\bf R}}
+\put(45,43){\line(0,1){3}}
+\put(45,40){\line(0,1){3}}
+\put(25,40){\line(1,0){40}}
+\multiput(25,37)(40,0){2}{\line(0,1){3}}
+\multiput(25,34)(40,0){2}{\makebox(0,0){\rm\bf R}}
+\multiput(25,28)(40,0){2}{\line(0,1){3}}
+\multiput(15,28)(40,0){2}{\line(1,0){20}}
+\multiput(15,25)(20,0){4}{\line(0,1){3}}
+\multiput(15,22)(20,0){4}{\makebox(0,0){\rm\bf R}}
+\multiput(15,16)(20,0){4}{\line(0,1){3}}
+\multiput(10,16)(20,0){4}{\line(1,0){10}}
+\multiput(10,13)(10,0){8}{\line(0,1){3}}
+\multiput(10,10)(10,0){8}{\makebox(0,0){\rm\bf C}}
+\end{picture}
+\end{center}
+\hspace*{\fill}%
+\mbox{{\bf S} = server;}%
+\hspace*{\fill}%
+\mbox{{\bf R} = router;}%
+\hspace*{\fill}%
+\mbox{{\bf C} = client}%
+\hspace*{\fill}
+\caption{Network with 3 servers and 8 clients, 2 clients per LAN}
+\label{s3:r3:l2}
+\end{figure}
+shows the network topology with ${\cal S} = 3$, ${\cal R} = 3$ and
+${\cal L} = 2$, so that there are 3 servers sending data to 8 clients;
+for comparison, figure~\pref{s3:r4:l1}
+\begin{figure}[bp]
+\begin{center}
+\begin{picture}(90,74)
+\multiput(20,67)(25,0){3}{\makebox(0,0){\rm\bf S}}
+\multiput(20,61)(25,0){3}{\line(0,1){3}}
+\put(20,61){\line(1,0){50}}
+\put(45,58){\line(0,1){3}}
+\put(45,55){\makebox(0,0){\rm\bf R}}
+\put(45,52){\line(0,1){3}}
+\put(45,49){\line(0,1){3}}
+\put(25,49){\line(1,0){40}}
+\multiput(25,46)(40,0){2}{\line(0,1){3}}
+\multiput(25,43)(40,0){2}{\makebox(0,0){\rm\bf R}}
+\multiput(25,37)(40,0){2}{\line(0,1){3}}
+\multiput(15,37)(40,0){2}{\line(1,0){20}}
+\multiput(15,34)(20,0){4}{\line(0,1){3}}
+\multiput(15,31)(20,0){4}{\makebox(0,0){\rm\bf R}}
+\multiput(15,25)(20,0){4}{\line(0,1){3}}
+\multiput(10,25)(20,0){4}{\line(1,0){10}}
+\multiput(10,22)(10,0){8}{\line(0,1){3}}
+\multiput(10,19)(10,0){8}{\makebox(0,0){\rm\bf R}}
+\multiput(10,13)(10,0){8}{\line(0,1){3}}
+\multiput(10,10)(10,0){8}{\makebox(0,0){\rm\bf C}}
+\end{picture}
+\end{center}
+\hspace*{\fill}%
+\mbox{{\bf S} = server;}%
+\hspace*{\fill}%
+\mbox{{\bf R} = router;}%
+\hspace*{\fill}%
+\mbox{{\bf C} = client}%
+\hspace*{\fill}
+\caption{Network with 3 servers and 8 clients, 1 client per LAN}
+\label{s3:r4:l1}
+\end{figure}
+shows the same number of clients arranged on 8 separate LANs
+(${\cal L} = 1$) so that there is an extra network hop between
+clients and servers (${\cal R} = 4$).
+
+Each experiment run will select a network topology (i.e.\ values
+for ${\cal S}$, ${\cal R}$ and ${\cal L}$) and an update size
+${\cal N}$ and run the three update mechanisms on that network.
+
+\section{Experimental setup}
+\label{experiment}
+
+\section{Experiment results}
+\label{results}
+
+\section{Future work}
+\label{future}
+
+Due to time limitations we have only measured network performance
+for a small set of regular network topologies generated by varying
+some parameters; of course the real world is made up of rather
+more irregular topologies and it it would be interesting to investigate
+more variations in this area in a future set of experiments.
+
+We also simplified the software update by assuming that all clients
+request exactly the same file, rather than a more complex situation
+in which every client requests a different subset of all available
+updates, due to its own unique update history; while we expect that
+multicast will scale really well to this situation, we haven't
+ran an experiment to support this.
+
+\end{document}
+
