@@ -1,0 +1,363 @@
+#!/usr/bin/perl -w
+
+use strict;
+use POSIX 'strftime';
+
+my ($S, $R, $L, $D, $YAML, %K);
+my $N = '16M';
+while (@ARGV) {
+    my $A = shift @ARGV;
+    $A =~ /^S=(.*)$/ and $S = $1, next;
+    $A =~ /^R=(.*)$/ and $R = $1, next;
+    $A =~ /^L=(.*)$/ and $L = $1, next;
+    $A =~ /^D=(.*)$/ and $D = $1, next;
+    $A =~ /^N=(.*)$/ and $N = $1, next;
+    $A eq 'YAML' and $YAML = 1, next;
+    $A eq 'XML' and $YAML = 0, next;
+    $A =~ /^K(\w+)=(.*)$/ or die "Unknown option $A\n";
+    my ($user, $key) = ($1, $2);
+    open(KF, '<', $key) or die "K=$key: $!\n";
+    my $K = <KF>;
+    close KF;
+    defined $K or die "$A: empty key\n";
+    chomp $K;
+    push @{$K{$user}}, $K;
+}
+defined $S && defined $L or die "Missing S or L\n";
+
+my $nLAN = defined $R ? (2 ** ($R - 1)) : 1;
+my $C = $nLAN * $L;
+# In theory we would be checking for overflow on $C aka "experiment so
+# large you won't find enough hardware".
+
+printf "Servers (S):        %8d\n", $S;
+defined $R and printf "Router path (R):    %8d\n", $R;
+printf "Number of LANs:     %8d\n", $nLAN;
+printf "Clente per LAN (L): %8d\n", $L;
+printf "Total clients (C):  %8d\n", $C;
+print "\n";
+
+my $SP = $YAML ? '      ' : '';
+# used in making up graph coordinates
+my $dx = 1024 / ($C + 1);
+my $dy = 512 / (($R || 0) + 3);
+
+my $dest;
+if (defined $D) {
+    $dest = $D;
+    open(DEST, '>', $dest) or die "$dest: $!\n";
+} else {
+    $dest = '(stdout)';
+    open(DEST, '>&STDOUT') or die "Reopening STDOUT: $!\n";
+}
+
+# XML embedded in YAML.  Who made this up?
+print DEST <<"EOF" or die "$dest: $!\n" if $YAML;
+---
+action: RUN
+callOutputs:
+- filename: /tmp/calls.txt
+  format: TEXT
+  target: FILE
+debugOutputs:
+- filename: /tmp/debug.txt
+  format: TXT_FULL
+  level: INFO
+  target: FILE
+experiment:
+  provision:
+    enabled: false
+  requestRSpec:
+    providedContentSource: |
+EOF
+(my $now = strftime '%Y-%m-%dT%H:%M:%S.000%z', gmtime) =~ s/(\d{2})$/:$1/;
+print DEST <<"EOF" or die "$dest: $!\n";
+$SP<?xml version="1.0" encoding="UTF-8"?>
+$SP<rspec
+$SP  xmlns="http://www.geni.net/resources/rspec/3"
+$SP  type="request"
+$SP  generated="$now"
+$SP  xmlns:emulab="http://www.protogeni.net/resources/rspec/ext/emulab/1"
+$SP  xmlns:delay="http://www.protogeni.net/resources/rspec/ext/delay/1"
+$SP  xmlns:jfed-command="http://jfed.iminds.be/rspec/ext/jfed-command/1"
+$SP  xmlns:client="http://www.protogeni.net/resources/rspec/ext/client/1"
+$SP  xmlns:jfed-ssh-keys="http://jfed.iminds.be/rspec/ext/jfed-ssh-keys/1"
+$SP  xmlns:jfed="http://jfed.iminds.be/rspec/ext/jfed/1"
+$SP  xmlns:sharedvlan="http://www.protogeni.net/resources/rspec/ext/shared-vlan/1"
+$SP  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+$SP  xsi:schemaLocation="http://www.geni.net/resources/rspec/3 http://www.geni.net/resources/rspec/3/manifest.xsd "
+$SP  >
+EOF
+
+my $nodeno = 0;
+my $ipstart = 32;
+my $clientlan = $ipstart;
+my $routerlan = $clientlan + $nLAN;
+my $serverlan = defined $R ? ($routerlan + $R) : $clientlan;
+my $serverip = $ipstart;
+my $routerip = 16;
+my $linkno = 0;
+my $posx = $dx;
+my $posy = 512;
+my @routers = ();
+my @all_clients = ();
+my @all_routers = ();
+my @all_servers = ();
+
+# add all clients, bottom level routers and link them together
+my @clients = ();
+for (my $ln = 0; $ln < $nLAN; $ln++) {
+    my $rx = 0;
+    my $clientip = 32;
+    for (my $cn = 0; $cn < $L; $cn++) {
+	# add client
+	print DEST <<"EOF" or die "$dest: $!\n";
+$SP  <node client_id="node$nodeno" exclusive="true" component_manager_id="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm">
+$SP    <sliver_type name="raw-pc">
+$SP      <disk_image name="urn:publicid:IDN+wall2.ilabt.iminds.be+image+emulab-ops:UBUNTU20-64-STD"/>
+$SP    </sliver_type>
+$SP    <jfed:ansible_group name="client">
+$SP    <location xmlns="http://jfed.iminds.be/rspec/ext/jfed/1" x="$posx" y="$posy"/>
+$SP    <interface client_id="node$nodeno">
+$SP      <ip address="192.168.$clientlan.$clientip" netmask="255.255.255.0" type="ipv4"/>
+$SP    </interface>
+$SP  </node>
+EOF
+	push @all_clients, "$clientlan.$clientip";
+	push @clients, $nodeno;
+	$nodeno++;
+	$rx += $posx;
+	$posx += $dx;
+	$clientip++;
+	defined $R or $serverip++;
+    }
+    defined $R or next;
+    $rx /= $L;
+    # add router
+    my $router = $nodeno;
+    push @all_routers, "$routerlan.$routerip";
+    my $py = $posy - $dy;
+    push @routers, [$router, $rx, $py, $routerlan];
+    print DEST <<"EOF" or die "$dest: $!\n";
+$SP  <node client_id="node$nodeno" exclusive="true" component_manager_id="urn:publicid:IDN+pllab.pl+authority+cm">
+$SP    <sliver_type name="raw-router"/>
+$SP    <location xmlns="http://jfed.iminds.be/rspec/ext/jfed/1" x="$rx" y="$py"/>
+$SP    <interface client_id="node$router:if0">
+$SP      <ip address="192.168.$clientlan.1" netmask="255.255.255.0" type="ipv4"/>
+$SP    </interface>
+$SP    <interface client_id="node$router:if1">
+$SP      <ip address="192.168.$routerlan.$routerip" netmask="255.255.255.0" type="ipv4"/>
+$SP    </interface>
+$SP  </node>
+EOF
+    $nodeno++;
+    # add links client <-> router
+    print DEST <<"EOF" or die "$dest: $!\n";
+$SP  <link client_id="link$linkno">
+$SP    <component_manager name="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm"/>
+$SP    <component_manager name="urn:publicid:IDN+pllab.pl+authority+cm"/>
+EOF
+    for my $c (@clients) {
+	print DEST <<"EOF" or die "$dest: $!\n";
+$SP    <interface_ref client_id="node$c:if0"/>
+EOF
+    }
+    print DEST <<"EOF" or die "$dest: $!\n";
+$SP    <interface_ref client_id="node$router:if0"/>
+$SP    <link_type name="lan"/>
+EOF
+    for my $c (@clients) {
+	print DEST <<"EOF" or die "$dest: $!\n";
+$SP    <property source_id="node$c:if0" dest_id="node$router:if0" capacity="10000"/>
+$SP    <property source_id="node$router:if0" dest_id="node$c:if0" capacity="10000"/>
+EOF
+    }
+    print DEST <<"EOF" or die "$dest: $!\n";
+$SP  </link>
+EOF
+    @clients = ();
+    $linkno++;
+    $clientlan++;
+    $routerip++;
+    $routerip < 18 and next;
+    $routerip = 16;
+    $routerlan++;
+}
+
+if (defined $R) {
+# now keep adding routers until there's just one left, where we'll attach the servers
+  $routerip = 16;
+  while (@routers > 1) {
+      my @or = @routers;
+      @routers = ();
+      while (@or) {
+	  # join two routers with a router bwteen them
+	  my ($r1, $x1, $y1, $l1) = @{shift @or};
+	  my ($r2, $x2, $y2, $l2) = @{shift @or};
+	  $l1 == $l2 or die "Internal error on router LAN: $l1 != $l2\n";
+	  my $router = $nodeno;
+	  $nodeno++;
+	  my $rx = ($x1 + $x2) / 2;
+	  my $ry = $y1 - $dx;
+	  push @routers, [$router, $rx, $ry, $routerlan];
+	  print DEST <<"EOF" or die "$dest: $!\n";
+$SP  <node client_id="node$router" exclusive="true" component_manager_id="urn:publicid:IDN+pllab.pl+authority+cm">
+$SP    <sliver_type name="raw-router"/>
+$SP    <location xmlns="http://jfed.iminds.be/rspec/ext/jfed/1" x="$rx" y="$ry"/>
+$SP    <interface client_id="node$router:if0">
+$SP      <ip address="192.168.$l1.1" netmask="255.255.255.0" type="ipv4"/>
+$SP    </interface>
+$SP    <interface client_id="node$router:if1">
+$SP      <ip address="192.168.$routerlan.$routerip" netmask="255.255.255.0" type="ipv4"/>
+$SP    </interface>
+$SP  </node>
+$SP  <link client_id="link$linkno">
+$SP    <component_manager name="urn:publicid:IDN+pllab.pl+authority+cm"/>
+$SP    <interface_ref client_id="node$r1:if1"/>
+$SP    <interface_ref client_id="node$r2:if1"/>
+$SP    <interface_ref client_id="node$router:if0"/>
+$SP    <link_type name="lan"/>
+$SP  </link>
+EOF
+	  $linkno++;
+	  $routerip++;
+	  $routerip < 18 and next;
+	  $routerip = 16;
+	  $routerlan++;
+      }
+  }
+}
+
+# add the servers
+my ($top_router, $top_x, $top_y, $_serverlan) =
+    defined $R ? @{shift @routers} : (undef, 512, 256, $clientlan);
+$serverlan == $_serverlan or die "Internal error, serverlan = $_serverlan != $serverlan\n";
+$dx = 1024 / ($S + 3);
+$posx = $top_x - $S * $dx / 2;
+$posy = $top_y - (defined $R ? $dy : 0);
+my @servers = ();
+for (my $sn = 0; $sn < $S; $sn++) {
+    print DEST <<"EOF" or die "$dest: $!\n";
+$SP  <node client_id="node$nodeno" exclusive="true" component_manager_id="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm">
+$SP    <sliver_type name="raw-pc">
+$SP      <disk_image name="urn:publicid:IDN+wall2.ilabt.iminds.be+image+emulab-ops:UBUNTU20-64-STD"/>
+$SP    </sliver_type>
+$SP    <jfed:ansible_group name="server">
+$SP    <location xmlns="http://jfed.iminds.be/rspec/ext/jfed/1" x="$posx" y="$posy"/>
+$SP    <interface client_id="node$nodeno">
+$SP      <ip address="192.168.$serverlan.$serverip" netmask="255.255.255.0" type="ipv4"/>
+$SP    </interface>
+$SP  </node>
+EOF
+    push @all_servers, "$serverlan.$serverip";
+    push @servers, $nodeno;
+    $nodeno++;
+    $serverip++;
+    $posx += $dx;
+}
+# now add a single server to direct the operation
+$serverip = 2;
+print DEST <<"EOF" or die "$dest: $!\n";
+$SP  <node client_id="node$nodeno" exclusive="true" component_manager_id="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm">
+$SP    <sliver_type name="raw-pc">
+$SP      <disk_image name="urn:publicid:IDN+wall2.ilabt.iminds.be+image+emulab-ops:UBUNTU20-64-STD"/>
+$SP    </sliver_type>
+$SP    <jfed:ansible_group name="director">
+$SP    <location xmlns="http://jfed.iminds.be/rspec/ext/jfed/1" x="$posx" y="$posy"/>
+$SP    <interface client_id="node$nodeno">
+$SP      <ip address="192.168.$serverlan.$serverip" netmask="255.255.255.0" type="ipv4"/>
+$SP    </interface>
+$SP    <services>
+$SP      <install install_path="/local" url="https://ams2.uilebheist.fr/jfed.tar.gz">
+$SP      <execute shell="sh" command="sudo /local/install-director"
+$SP       jfed:finished_flag="/tmp/director-done">
+EOF
+print DEST <<"EOF" or die "$dest: $!\n" if defined $R;
+$SP      <execute shell="sh" command="/local/setup-routers @all_routers"
+$SP       jfed:finished_flag="/tmp/routers-done">
+EOF
+print DEST <<"EOF" or die "$dest: $!\n";
+$SP      <execute shell="sh" command="/local/setup-servers $N @all_servers"
+$SP       jfed:finished_flag="/tmp/servers-done">
+$SP      <execute shell="sh" command="/local/setup-clients @all_clients"
+$SP       jfed:finished_flag="/tmp/clients-done">
+$SP      <execute shell="sh" command="/local/run-experiments">
+$SP    </services>
+$SP  </node>
+EOF
+push @servers, $nodeno;
+$nodeno++;
+$serverip++;
+$posx += $dx;
+# link servers with top level router or client LAN, as appropriate
+print DEST <<"EOF" or die "$dest: $!\n";
+$SP  <link client_id="link$linkno">
+$SP    <component_manager name="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm"/>
+EOF
+print DEST <<"EOF" or die "$dest: $!\n" if defined $R;
+$SP    <component_manager name="urn:publicid:IDN+pllab.pl+authority+cm"/>
+EOF
+for my $s (@clients, @servers) {
+    print DEST <<"EOF" or die "$dest:$!\n";
+$SP    <interface_ref client_id="node$s:if0"/>
+EOF
+}
+print DEST <<"EOF" or die "$dest: $!\n" if defined $R;
+$SP    <interface_ref client_id="node$top_router:if1"/>
+EOF
+print DEST <<"EOF" or die "$dest: $!\n";
+$SP    <link_type name="lan"/>
+EOF
+if (defined $R) {
+    for my $s (@servers) {
+	print DEST <<"EOF" or die "$dest: $!\n";
+$SP    <property source_id="node$s:if0" dest_id="node$top_router:if1" capacity="10000"/>
+$SP    <property source_id="node$top_router:if1" dest_id="node$s:if0" capacity="10000"/>
+EOF
+    }
+}
+print DEST <<"EOF" or die "$dest: $!\n";
+$SP  </link>
+EOF
+
+# any keys?
+if (keys %K) {
+    for my $U (sort keys %K) {
+      print DEST <<"EOF" or die "$dest: $!\n";
+$SP  <jfed-ssh-keys:user-ssh-keys user="urn:publicid:IDN+ilabt.imec.be+user+$U">
+EOF
+      for my $K (@{$K{$U}}) {
+	  print DEST <<"EOF" or die "$dest: $!\n";
+$SP    <jfed-ssh-keys:sshkey>$K</jfed-ssh-keys:sshkey>
+EOF
+      }
+      print DEST <<"EOF" or die "$dest: $!\n";
+$SP  </jfed-ssh-keys:user-ssh-keys>
+EOF
+  }
+}
+
+print DEST <<"EOF" or die "$dest: $!\n";
+$SP  <jfed:distribute_ssh_keypair />
+$SP</rspec>
+EOF
+print DEST <<"EOF" or die "$dest: $!\n" if $YAML;
+    source: PROVIDE_CONTENT
+  runLinkTest: true
+  slice:
+    expireTimeMin: 120
+    failIfNoProject: true
+    sliceName: myExp1
+  waitForReady:
+    enabled: true
+output:
+  ansibleDir: /tmp/ansible
+  manifestFile: /tmp/output.rspec
+user:
+  password: /home/clc/data/login.pwd
+  passwordMethod: FILE
+  pem:
+  - /home/clc/data/login.pem
+EOF
+close DEST or die "$dest: $\n";
+
