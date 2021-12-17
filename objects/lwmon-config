@@ -1,0 +1,17 @@
+# lwmon configuration file to run an experiment; caller needs to change
+# the items below and then run "lwmon -c" on the result
+# [TYPE]       = client, server, router, director
+# [NODE]       = node number
+# [EXPERIMENT] = unicast, multicast, hybrid
+# [INTERFACE]  = interface to use for network traffic
+# [SERVER]     = for clients only, server to use, if required by the experiment
+
+hostname [TYPE][NODE]
+print /tmp/results/[TYPE][NODE] overwrite binary
+
+load lavg 1
+memory memswap 1
+network intf 1 [INTERFACE]
+
+program experiment 5 /tmp/experiment/start-[EXPERIMENT]-[TYPE] [INTERFACE] [SERVER]
+

@@ -1,0 +1,19 @@
+#!/bin/sh
+
+ssh='ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa'
+
+# set up all servers, clients and the director itself
+while read what type number host port user
+do
+    [ "$what" = NODE ] || continue
+    echo "Setting up $type$number ($user@$host:$port)"
+    if [ "$type" = director ]
+    then
+	/tmp/experiment/setup-node "$type" "$number"
+    else
+	rsync -avHPe "$ssh -p$port" /tmp/experiment/ $user@$host:/tmp/experiment/ < /dev/null
+	sshrun="$ssh -p$port $user@$host -n"
+	$sshrun /tmp/experiment/setup-node "$type" "$number"
+    fi
+done < /tmp/experiment/setup-data
+

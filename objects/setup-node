@@ -1,0 +1,42 @@
+#!/bin/sh
+
+# usage: setup-node TYPE NUMBER
+r_type="$1"
+r_number="$2"
+
+# find all IP addresses this node needs, and on which interfaces
+code=0
+save=true
+while read what type number hwaddr ipv4 ipv6
+do
+    [ "$what" = ADDR ] || continue
+    [ "$type" = "$r_type" ] || continue
+    [ "$number" = "$r_number" ] || continue
+    interface="`grep -li $hwaddr /sys/class/net/*/address | \
+    		awk -F/ '{print $(NF-1); exit}'`"
+    if [ ".$interface" = . ]
+    then
+	echo "Cannot figure out interface name"
+	code=1
+    fi
+    echo "$interface  $ipv4  $ipv6"
+    sudo ip link set up dev $interface
+    sudo ip -4 addr add $ipv4/24 dev $interface
+    sudo ip -6 addr add $ipv6/64 dev $interface nodad
+    sudo cp -a /tmp/experiment/lib* /usr/local/lib/
+    sudo cp -a /tmp/experiment/iotup? /usr/local/bin/
+    sudo cp -a /tmp/experiment/lwmon /usr/local/bin/
+    sudo ldconfig
+    # this seem to be required to make network actually be up
+    ping -c1 -n -W1 $ipv4 > /dev/null 2>&1
+    ping -c1 -n -W1 $ipv6 > /dev/null 2>&1
+    $save || continue
+    echo "$interface" > /tmp/interface
+    save=false
+done < /tmp/experiment/setup-data
+
+[ "$type" = router ] || exit $code
+# XXX here we would want to set up routing...
+
+exit $code
+

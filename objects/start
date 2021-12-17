@@ -1,0 +1,51 @@
+#!/bin/sh
+
+# start the experiment
+
+experiment="$1"
+type="$2"
+number="$3"
+
+# setup-node writes the name of the interface to use for packets here
+interface="`cat /tmp/interface`"
+
+# select a random server IPv6 address, if the experiment requires it
+server="` \
+    awk '/^ADDR server/ { print $NF }' /tmp/experiment/setup-data | \
+    shuf | \
+    head -1`"
+
+# run any preparation which we do not want to measure e.g. sleeps to
+# simulate scheduling; we only run the first one we find, but if that
+# needs to include a more generic one it can do that
+if [ -x "/tmp/experiment/prepare-$experiment-$type" ]
+then
+    "/tmp/experiment/prepare-$experiment-$type"
+elif [ -x "/tmp/experiment/prepare-$experiment" ]
+then
+    "/tmp/experiment/prepare-$experiment"
+elif [ -x "/tmp/experiment/prepare-$type" ]
+then
+    "/tmp/experiment/prepare-$type"
+elif [ -x "/tmp/experiment/prepare" ]
+then
+    "/tmp/experiment/prepare"
+fi
+
+sed -e 's/\[TYPE\]/'"$type"'/g' \
+    -e 's/\[NODE\]/'"$number"'/g' \
+    -e 's/\[EXPERIMENT\]/'"$experiment"'/g' \
+    -e 's/\[INTERFACE\]/'"$interface"'/g' \
+    -e 's/\[SERVER\]/'"$server"'/g' \
+    /tmp/experiment/lwmon-config > /tmp/lwmon-config
+
+rm -r /tmp/results >/dev/null 2>&1
+mkdir /tmp/results
+lwmon -c /tmp/lwmon-config
+
+# copy the results back to director
+director="`awk '/^ADDR director/ { print $NF; exit }' /tmp/experiment/setup-data`"
+scp -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
+    /tmp/results/* "[$director]:/tmp/results/"
+rm -r /tmp/results >/dev/null 2>&1
+
