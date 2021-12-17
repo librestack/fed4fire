@@ -51,9 +51,9 @@ ssh -p22 libreclc@n109-05.wall2.ilabt.iminds.be
 
 On the director itself, start by setting up all the other nodes:
 
-/run/experiment/setup-all
+/tmp/experiment/setup-all
 
 And then run the experiment:
 
-/run/experiment/run-experiment
+/tmp/experiment/run-experiment
 
