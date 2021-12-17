@@ -1,0 +1,116 @@
+#!/usr/bin/perl -w
+
+use strict;
+use FindBin '$Bin';
+
+@ARGV == 2 || @ARGV == 3 or die "Usage: $0 SIZES EXP_NAME [BASE_DIR]\n";
+my ($SIZES, $EXP, $DIR) = (@ARGV, '/tmp');
+
+my %ansible_nodes;
+my $hf = "$DIR/$EXP/ansible/ansible-hosts";
+open (HF, '<', $hf) or die "$hf: $!\n";
+my $hslen = 0;
+while (<HF>) {
+    /^(\w*[^\W\d])(\d+)\s/ or next;
+    my ($type, $number) = ($1, $2);
+    chomp;
+    /\bansible_ssh_host=(\S+)\b/ or die "No host in $_\n";
+    my $h = $1;
+    /\bansible_ssh_port=(\d+)\b/ or die "No port in $_\n";
+    my $p = $1;
+    /\bansible_ssh_user=(\S+)\b/ or die "No user in $_\n";
+    my $u = $1;
+    my $hs = join('.', (split(/\./, $h))[0, 1]);
+    $ansible_nodes{"$type$number"} = [$type, $number, $h, $p, $u, $hs];
+    $hslen < length $hs and $hslen = length $hs;
+}
+close HF;
+
+my %hwaddr;
+my $mo = "$DIR/$EXP/output.rspec";
+open(MO, '<', $mo) or die "$mo: $!\n";
+while (<MO>) {
+    /^\s+<interface\s/i or next;
+    /\bclient_id="(\w+):(\w+)"/i or next;
+    my ($node, $ifno) = ($1, $2);
+    /\bmac_address="([[:xdigit:]]{2})
+		    ([[:xdigit:]]{2})
+		    ([[:xdigit:]]{2})
+		    ([[:xdigit:]]{2})
+		    ([[:xdigit:]]{2})
+		    ([[:xdigit:]]{2})"/ix or next;
+    my $hwaddr = join(':', $1, $2, $3, $4, $5, $6);
+    $hwaddr{$node}{$ifno} = $hwaddr;
+}
+close MO;
+
+my %our_nodes;
+my $es = "$DIR/$EXP/action.script";
+open (ES, '<', $es) or die "$es: $!\n";
+while (<ES>) {
+    /^(\w+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\b/ or die "$es.$.: Invalid line $_";
+    my ($type, $number, $ifno, $ipv4, $ipv6) = ($1, $2, $3, $4, $5);
+    my $node = $type . $number;
+    exists $ansible_nodes{$node} or die "Invalid data: $type $number not known\n";
+    exists $hwaddr{$node}{$ifno} or die "Invalid data: $type $number does not have $ifno\n";
+    my $hwaddr = $hwaddr{$node}{$ifno};
+    push @{$our_nodes{$node}}, [ $hwaddr, $ipv4, $ipv6 ];
+}
+close ES;
+exists $our_nodes{director0} or die "$es: No director defined\n";
+exists $our_nodes{client0} or die "$es: No clients defined\n";
+exists $our_nodes{server0} or die "$es: No servers defined\n";
+
+my $bin = "$Bin/../objects";
+chdir $bin or die "$bin: $!\n";
+
+# create setup data
+open(SD, '>', "$DIR/$EXP/setup-data") or die "$DIR/$EXP/setup-data: $!\n";
+$hslen += 4;
+for my $node (sort keys %our_nodes) {
+    my ($type, $number, $h, $p, $u, $hs) = @{$ansible_nodes{$node}};
+    print SD "NODE $type $number $h $p $u\n"
+	or die "$DIR/$EXP/setup-data: $!\n";
+    printf "NODE %-10s %s@%-${hslen}s", $node, $u, "$hs:$p";
+    for my $item (@{$our_nodes{$node}}) {
+	my ($hwaddr, $ipv4, $ipv6) = @$item;
+	print SD "ADDR $type $number $hwaddr $ipv4 $ipv6\n"
+	    or die "$DIR/$EXP/setup-data: $!\n";
+	printf "     %-17s %-16s %s\n", $hwaddr, $ipv4, $ipv6;
+    }
+}
+close SD or die "$DIR/$EXP/setup-data: $!\n";
+open(SD, '>', "$DIR/$EXP/sizes") or die "$DIR/$EXP/sizes: $!\n";
+for my $sz (split(/,/, $SIZES)) {
+    print SD "$sz\n" or die "$DIR/$EXP/sizes: $!\n";
+}
+close SD or die "$DIR/$EXP/sizes: $!\n";
+
+my @ssh = qw(ssh -oCheckHostIP=no -oStrictHostKeyChecking=no);
+
+# copy binaries and experiment data to director
+my ($d_type, $d_node, $d_host, $d_port, $d_user) = @{$ansible_nodes{director0}};
+rsync($d_host, $d_port, $d_user, '/tmp/experiment',
+      './', "$DIR/$EXP/setup-data", "$DIR/$EXP/sizes");
+
+# run setup script on director
+#XXX ssh($d_host, $d_port, $d_user, '/tmp/experiment/setup-all');
+
+# run experiment script on director
+#XXX ssh($d_host, $d_port, $d_user, '/tmp/experiment/run-experiment');
+
+sub rsync {
+    my ($h, $p, $u, $remdir, @locfiles) = @_;
+    my $ssh = join(' ', @ssh, '-p', $p);
+    my @rsync = ('rsync', '-avHPe', $ssh, @locfiles, "$u\@$h:$remdir");
+    run("$rsync[0] @locfiles", @rsync);
+}
+
+sub run {
+    my ($name, @prog) = @_;
+    system(@prog) == 0 and return;
+    $? == -1 and die "$prog[0]: $!\n";
+    $? & 0x7f and die "$name: killed by signal " . ($? & 0x7f) . "\n";
+    die "$name: exited with status " . ($? >> 8) . "\n";
+}
+
