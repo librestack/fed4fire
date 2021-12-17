@@ -151,7 +151,6 @@ EOF
 	    push @all, "client $clientno if1 192.168.$clientlan.$clientip "
 		     . "2a03:4980:123:9a$v6lan\::$clientip";
 	    push @clients, "client$clientno";
-print "C$clientno $clientlan.$clientip\n"; # XXX
 	    $clientno++;
 	    $rx += $posx;
 	    $posx += $dx;
@@ -169,8 +168,6 @@ print "C$clientno $clientlan.$clientip\n"; # XXX
 		 . "2a03:4980:123:9a$v6lan\::$routerip";
 	my $py = $posy - $dy;
 	push @routers, [$routerno, $rx, $py, $routerlan];
-print "R$routerno $clientlan.1\n"; # XXX
-print "R$routerno $routerlan.$routerip\n"; # XXX
 	$rspec .= <<"EOF";
   <node client_id="router$routerno" exclusive="true" component_manager_id="urn:publicid:IDN+pllab.pl+authority+cm">
     <sliver_type name="raw-router"/>
@@ -239,8 +236,6 @@ EOF
 		push @all, "router $routerno if2 192.168.$routerlan.$routerip "
 			 . "2a03:4980:123:9a$v6lan\::$routerip";
 		push @routers, [$routerno, $rx, $ry, $routerlan];
-print "R$routerno $l1.1\n"; # XXX
-print "R$routerno $routerlan.$routerip\n"; # XXX
 		$rspec .= <<"EOF";
   <node client_id="router$routerno" exclusive="true" component_manager_id="urn:publicid:IDN+pllab.pl+authority+cm">
     <sliver_type name="raw-router"/>
@@ -302,7 +297,6 @@ EOF
 	push @all, "server $serverno if1 192.168.$serverlan.$serverip "
 		 . "2a03:4980:123:9a$v6lan\::$serverip";
 	push @servers, "server$serverno";
-print "S$serverno $serverlan.$serverip\n"; # XXX
 	$serverno++;
 	$serverip++;
 	$posx += $dx;
@@ -312,7 +306,6 @@ print "S$serverno $serverlan.$serverip\n"; # XXX
     my $v6lan = sprintf "%02x", $serverlan - $netstart;
     push @all, "director 0 if1 192.168.$serverlan.$serverip "
 	     . "2a03:4980:123:9a$v6lan\::$serverip";
-print "D0 $serverlan.$serverip\n"; # XXX
     $rspec .= <<"EOF";
   <node client_id="director0" exclusive="true" component_manager_id="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm">
     <sliver_type name="raw-pc">
