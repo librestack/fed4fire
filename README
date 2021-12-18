@@ -18,9 +18,15 @@ mkdir /tmp/$exp
 other options:
     PWD=~/data/login.pwd     file containing password for login.pem
     K=~/.ssh/id_rsa.pub      add another allowed ssh key to the testbed
-                             (the one from login.pem is added automatically)
+                             (the one from login.pem and the one in the
+                             "objects" directory are added automatically)
+    Klibrecas=~/data/id_rsa.pub
+                             Add key for non-default user (here "librecas")
 
-To run the experiment:
+If no other keys are specified with "K=", the default key from login.pem
+as well as the private key in the "objects" directory can be used to log
+in to the testbed: the latter key is also used by the nodes to talk to
+each other.
 
 xvfb-run java -Djdk.gtk.version=2 -jar ~/jfed_cli/experimenter-cli2.jar \
     -a /tmp/$exp/action.yaml
