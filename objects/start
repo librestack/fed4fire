@@ -2,9 +2,11 @@
 
 # start the experiment
 
-experiment="$1"
-type="$2"
-number="$3"
+schedule="$1"
+experiment="$2"
+type="$3"
+number="$4"
+size="$5"
 
 # setup-node writes the name of the interface to use for packets here
 interface="`cat /tmp/interface`"
@@ -15,9 +17,9 @@ server="` \
     shuf | \
     head -1`"
 
-# run any preparation which we do not want to measure e.g. sleeps to
-# simulate scheduling; we only run the first one we find, but if that
-# needs to include a more generic one it can do that
+# run any preparation which we do not want to measure; we only run the
+# first one we find, but if that needs to include a more generic one it
+# can do that
 if [ -x "/tmp/experiment/prepare-$experiment-$type" ]
 then
     "/tmp/experiment/prepare-$experiment-$type"
@@ -32,11 +34,22 @@ then
     "/tmp/experiment/prepare"
 fi
 
+# run the scheduler for clients only
+if [ "$type" = client ]
+then
+    "/tmp/experiment/schedule-$schedule"
+    # make sure we don't find a permission problem because some experiments
+    # run as root, and some don't
+    sudo rm -f /tmp/datafile
+fi
+
 sed -e 's/\[TYPE\]/'"$type"'/g' \
     -e 's/\[NODE\]/'"$number"'/g' \
     -e 's/\[EXPERIMENT\]/'"$experiment"'/g' \
     -e 's/\[INTERFACE\]/'"$interface"'/g' \
     -e 's/\[SERVER\]/'"$server"'/g' \
+    -e 's/\[SCHEDULE\]/'"$schedule"'/g' \
+    -e 's/\[SIZE\]/'"$size"'/g' \
     /tmp/experiment/lwmon-config > /tmp/lwmon-config
 
 rm -r /tmp/results >/dev/null 2>&1

@@ -5,9 +5,11 @@
 # [EXPERIMENT] = unicast, multicast, hybrid
 # [INTERFACE]  = interface to use for network traffic
 # [SERVER]     = for clients only, server to use, if required by the experiment
+# [SCHEDULE]   = the client schedule used
+# [SIZE]       = the data size in megabytes
 
 hostname [TYPE][NODE]
-print /tmp/results/[TYPE][NODE] overwrite binary
+print /tmp/results/[TYPE][NODE].[EXPERIMENT].[SCHEDULE].[SIZE] overwrite binary
 
 load lavg 1
 memory memswap 1

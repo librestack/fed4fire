@@ -2,5 +2,5 @@
 
 # run iotupd until the end of the experiment
 
-exec sudo iotupd /tmp/datafile "$1" >/dev/null 2>&1
+exec sudo iotupd /tmp/datafile "$1" 0.37500 >/dev/null 2>&1
 

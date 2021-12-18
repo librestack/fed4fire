@@ -20,70 +20,77 @@ do
 	sort -u | \
 	while read experiment
     do
-	rm -r /tmp/results >/dev/null 2>&1
-	mkdir /tmp/results
-	echo "Running experiment=$experiment size=$size"
-	# start the experiment
-	while read what type number host port user
+	for schedule in /tmp/experiment/schedule-*
 	do
-	    [ "$what" = NODE ] || continue
-	    [ "$type" = server -o "$type" = client ] || continue
-	    sshrun="$ssh -p$port $user@$host -n"
-	    $sshrun /tmp/experiment/start "$experiment" "$type" "$number" &
-	done < /tmp/experiment/setup-data
-	# wait for all clients to report completion
-	echo "Experiment started, waiting for client results"
-	waiting=true
-	prn=true
-	while $waiting
-	do
-	    waiting=false
-	    sleep 2
+	    schedule="${schedule##*schedule-}"
+	    rm -r /tmp/results >/dev/null 2>&1
+	    mkdir /tmp/results
+	    echo "Running experiment=$experiment schedule=$schedule size=$size"
+	    # start the experiment
 	    while read what type number host port user
 	    do
 		[ "$what" = NODE ] || continue
-		[ "$type" = client ] || continue
-		[ -f "/tmp/results/$type$number" ] && continue
-		$prn && echo "Waiting for $type $number..."
-		waiting=true
+		[ "$type" = server -o "$type" = client ] || continue
+		sshrun="$ssh -p$port $user@$host -n"
+		$sshrun /tmp/experiment/start "$schedule" "$experiment" \
+		    "$type" "$number" "$size" &
 	    done < /tmp/experiment/setup-data
-	    prn=false
-	done
-	echo "Stopping experiment"
-	while read what type number host port user
-	do
-	    [ "$what" = NODE ] || continue
-	    [ -x "/tmp/experiment/stop-$experiment-$type" ] || continue
-	    sshrun="$ssh -p$port $user@$host -n"
-	    $sshrun "/tmp/experiment/stop-$experiment-$type"
-	done < /tmp/experiment/setup-data
-	echo "Experiment stopped, waiting for server/router results"
-	waiting=true
-	prn=true
-	while $waiting
-	do
-	    waiting=false
-	    sleep 2
+	    # wait for all clients to report completion
+	    echo "Experiment started, waiting for client results"
+	    waiting=true
+	    prn=true
+	    while $waiting
+	    do
+		waiting=false
+		sleep 2
+		while read what type number host port user
+		do
+		    [ "$what" = NODE ] || continue
+		    [ "$type" = client ] || continue
+		    [ -f "/tmp/results/$type$number.$experiment.$schedule.$size" ] && \
+			continue
+		    $prn && echo "Waiting for $type $number..."
+		    waiting=true
+		done < /tmp/experiment/setup-data
+		prn=false
+	    done
+	    echo "Stopping experiment"
 	    while read what type number host port user
 	    do
 		[ "$what" = NODE ] || continue
-		[ "$type" = director ] && continue
-		[ -f "/tmp/results/$type$number" ] && continue
-		$prn && echo "Waiting for $type $number..."
-		waiting=true
+		[ -x "/tmp/experiment/stop-$experiment-$type" ] || continue
+		sshrun="$ssh -p$port $user@$host -n"
+		$sshrun "/tmp/experiment/stop-$experiment-$type"
 	    done < /tmp/experiment/setup-data
-	    prn=false
+	    echo "Experiment stopped, waiting for server/router results"
+	    waiting=true
+	    prn=true
+	    while $waiting
+	    do
+		waiting=false
+		sleep 2
+		while read what type number host port user
+		do
+		    [ "$what" = NODE ] || continue
+		    [ "$type" = director ] && continue
+		    [ -f "/tmp/results/$type$number.$experiment.$schedule.$size" ] && \
+			continue
+		    $prn && echo "Waiting for $type $number..."
+		    waiting=true
+		done < /tmp/experiment/setup-data
+		prn=false
+	    done
+	    # create result tarball
+	    echo "Copying results to server"
+	    tarball="/tmp/results-$experiment-$schedule-$size-`date +%Y%m%d%H%M%S`.tar.gz"
+	    tar czf "$tarball" -C /tmp/results .
+	    # copy tarball back to server
+	    scp -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
+		-P722 "$tarball" jfed@ams2.uilebheist.fr:results/
+	    # clean up
+	    rm -r /tmp/results
+	    rm "$tarball"
 	done
-	# create result tarball
-	echo "Copying results to server"
-	tarball="/tmp/results-$experiment-$size-`date +%Y%m%d%H%M%S`.tar.gz"
-	tar czf "$tarball" -C /tmp/results .
-	# copy tarball back to server
-	scp -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
-	    -P722 "$tarball" jfed@ams2.uilebheist.fr:results/
-	# clean up
-	rm -r /tmp/results
-	rm "$tarball"
     done
 done < /tmp/experiment/sizes
 

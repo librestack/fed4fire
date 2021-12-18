@@ -1,0 +1,5 @@
+#!/bin/sh
+
+# "immediate" client schedule: all clients start after a 2 second sleep
+sleep 2
+

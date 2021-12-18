@@ -1,0 +1,7 @@
+#!/bin/sh
+
+# nothing to do for the server, so we sleep until the experiment ends;
+# at which point the controlling script will save the measurements
+
+exec sleep 86400
+

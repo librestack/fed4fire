@@ -1,0 +1,5 @@
+#!/bin/bash
+
+# "random" client schedule: sleep a random time between 2 and 34 seconds
+sleep $(( 2 + ( $RANDOM % 32 ) ))
+

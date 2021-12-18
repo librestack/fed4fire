@@ -1,0 +1,7 @@
+#!/bin/sh
+
+# just copy the file using scp
+
+exec scp -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
+    "[$2]:/tmp/datafile" /tmp/datafile
+

@@ -1,9 +1,0 @@
-#!/bin/sh
-
-# this is the default "client prepare" if an experiment does not have a
-# more specific one
-
-# give servers a chance to get started; we do that here rather than
-# in the run script so the 2 seconds don't count in the logged duration
-sleep 2
-
