@@ -1,0 +1,4 @@
+#!/bin/sh
+
+exec iotup client tcp /tmp/datafile "$2"
+

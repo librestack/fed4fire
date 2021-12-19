@@ -1,0 +1,8 @@
+#!/bin/sh
+
+# end the experiment
+
+killall -TERM sleep
+sleep 1
+killall -KILL sleep >/dev/null 2>&1
+
