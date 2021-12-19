@@ -44,17 +44,26 @@ while (<MO>) {
 }
 close MO;
 
-my %our_nodes;
+my (%our_nodes, %our_routes);
 my $es = "$DIR/$EXP/action.script";
 open (ES, '<', $es) or die "$es: $!\n";
 while (<ES>) {
-    /^(\w+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\b/ or die "$es.$.: Invalid line $_";
-    my ($type, $number, $ifno, $ipv4, $ipv6) = ($1, $2, $3, $4, $5);
-    my $node = $type . $number;
-    exists $ansible_nodes{$node} or die "Invalid data: $type $number not known\n";
-    exists $hwaddr{$node}{$ifno} or die "Invalid data: $type $number does not have $ifno\n";
-    my $hwaddr = $hwaddr{$node}{$ifno};
-    push @{$our_nodes{$node}}, [ $hwaddr, $ipv4, $ipv6 ];
+    if (/^node\s+(\w+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\b/) {
+	my ($type, $number, $ifno, $ipv4, $ipv6) = ($1, $2, $3, $4, $5);
+	my $node = $type . $number;
+	exists $ansible_nodes{$node}
+	    or die "Invalid data: $type $number not known\n";
+	exists $hwaddr{$node}
+	    {$ifno} or die "Invalid data: $type $number does not have $ifno\n";
+	my $hwaddr = $hwaddr{$node}{$ifno};
+	push @{$our_nodes{$node}}, [ $hwaddr, $ipv4, $ipv6 ];
+    } elsif (/^rte([46])\s+(\w+)\s+(\d+)\s+(\S+)\s+(\S+)\b/) {
+	my ($af, $type, $number, $to, $via) = ($1, $2, $3, $4, $5);
+	my $node = $type . $number;
+	push @{$our_routes{$node}}, [ $af, $to, $via ];
+    } else {
+	die "$es.$.: Invalid line $_";
+    }
 }
 close ES;
 exists $our_nodes{director0} or die "$es: No director defined\n";
@@ -78,6 +87,10 @@ for my $node (sort keys %our_nodes) {
 	    or die "$DIR/$EXP/setup-data: $!\n";
 	printf "     %-17s %-16s %s\n", $hwaddr, $ipv4, $ipv6;
     }
+    for my $item (@{$our_routes{$node}}) {
+	my ($af, $to, $via) = @$item;
+	print SD "RTE$af $type $number $to $via\n";
+    }
 }
 close SD or die "$DIR/$EXP/setup-data: $!\n";
 open(SD, '>', "$DIR/$EXP/sizes") or die "$DIR/$EXP/sizes: $!\n";
@@ -86,6 +99,7 @@ for my $sz (split(/,/, $SIZES)) {
 }
 close SD or die "$DIR/$EXP/sizes: $!\n";
 
+print "\n"; system 'cat', "$DIR/$EXP/setup-data"; exit 0; # XXX
 my @ssh = qw(ssh -oCheckHostIP=no -oStrictHostKeyChecking=no);
 
 # copy binaries and experiment data to director

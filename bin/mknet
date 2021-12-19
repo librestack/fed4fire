@@ -6,6 +6,10 @@ use FindBin '$Bin';
 
 $| = 1;
 
+my $pr4 = '192.168';
+my $pr6 = '2a03:4980:123';
+my $base6 = 0x9a00;
+
 my ($S, $R, $L, $RSPEC, $YAML, $SCRIPT, $PWD, %K, $EXP);
 my $DIR = '/tmp';
 -f "$Bin/../objects/id_rsa.pub" and unshift @ARGV, "K=$Bin/../objects/id_rsa.pub";
@@ -59,7 +63,7 @@ printf "Clente per LAN (L): %8d\n", $L;
 printf "Total clients (C):  %8d\n", $C;
 print "\n";
 
-my ($rspec, $yaml, $script, @all);
+my ($rspec, $yaml, $script, @nodes, @routes);
 create_rspec();
 if (defined $RSPEC) {
     print "Creating rspec ($RSPEC)... ";
@@ -143,13 +147,11 @@ EOF
       <ip address="10.0.$clientlan.$clientip" netmask="255.255.255.0" type="ipv4"/>
     </interface>
     <interface client_id="client$clientno:if1">
-      <ip address="192.168.$clientlan.$clientip" netmask="255.255.255.0" type="ipv4"/>
+      <ip address="$pr4.$clientlan.$clientip" netmask="255.255.255.0" type="ipv4"/>
     </interface>
   </node>
 EOF
-	    my $v6lan = sprintf "%02x", $clientlan - $netstart;
-	    push @all, "client $clientno if1 192.168.$clientlan.$clientip "
-		     . "2a03:4980:123:9a$v6lan\::$clientip";
+	    push @nodes, [ 'client', $clientno, $clientlan, $clientip ];
 	    push @clients, "client$clientno";
 	    $clientno++;
 	    $rx += $posx;
@@ -160,26 +162,25 @@ EOF
 	defined $R or next;
 	$rx /= $L;
 	# add router
-	my $v6lan = sprintf "%02x", $clientlan - $netstart;
-	push @all, "router $routerno if1 192.168.$clientlan.1 "
-		 . "2a03:4980:123:9a$v6lan\::1";
-	$v6lan = sprintf "%02x", $routerlan - $netstart;
-	push @all, "router $routerno if2 192.168.$routerlan.$routerip "
-		 . "2a03:4980:123:9a$v6lan\::$routerip";
+	push @nodes, [ 'router',$routerno, $clientlan, 1, $routerlan, $routerip ];
+	push @routes, [ $clientlan, $routerlan, $routerip ],
+		      [ $routerlan, $clientlan, 1 ];
 	my $py = $posy - $dy;
 	push @routers, [$routerno, $rx, $py, $routerlan];
 	$rspec .= <<"EOF";
-  <node client_id="router$routerno" exclusive="true" component_manager_id="urn:publicid:IDN+pllab.pl+authority+cm">
-    <sliver_type name="raw-router"/>
+  <node client_id="router$routerno" exclusive="true" component_manager_id="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm">
+    <sliver_type name="raw-pc">
+      <disk_image name="urn:publicid:IDN+wall2.ilabt.iminds.be+image+emulab-ops:UBUNTU20-64-STD"/>
+    </sliver_type>
     <location xmlns="http://jfed.iminds.be/rspec/ext/jfed/1" x="$rx" y="$py"/>
     <interface client_id="router$routerno:if0">
       <ip address="10.0.$clientlan.1" netmask="255.255.255.0" type="ipv4"/>
     </interface>
     <interface client_id="router$routerno:if1">
-      <ip address="192.168.$clientlan.1" netmask="255.255.255.0" type="ipv4"/>
+      <ip address="$pr4.$clientlan.1" netmask="255.255.255.0" type="ipv4"/>
     </interface>
     <interface client_id="router$routerno:if2">
-      <ip address="192.168.$routerlan.$routerip" netmask="255.255.255.0" type="ipv4"/>
+      <ip address="$pr4.$routerlan.$routerip" netmask="255.255.255.0" type="ipv4"/>
     </interface>
   </node>
 EOF
@@ -187,7 +188,6 @@ EOF
 	$rspec .= <<"EOF";
   <link client_id="link$linkno">
     <component_manager name="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm"/>
-    <component_manager name="urn:publicid:IDN+pllab.pl+authority+cm"/>
 EOF
 	for my $c (@clients) {
 	    $rspec .= <<"EOF";
@@ -197,14 +197,6 @@ EOF
 	$rspec .= <<"EOF";
     <interface_ref client_id="router$routerno:if1"/>
     <link_type name="lan"/>
-EOF
-	for my $c (@clients) {
-	    $rspec .= <<"EOF";
-    <property source_id="$c:if1" dest_id="router$routerno:if1" capacity="10000"/>
-    <property source_id="router$routerno:if1" dest_id="$c:if1" capacity="10000"/>
-EOF
-	}
-	$rspec .= <<"EOF";
   </link>
 EOF
 	$routerno++;
@@ -230,28 +222,28 @@ EOF
 		my $rx = ($x1 + $x2) / 2;
 		my $ry = $y1 - $dx;
 		my $v6lan = sprintf "%02x", $l1 - $netstart;
-		push @all, "router $routerno if1 192.168.$l1.1 "
-			 . "2a03:4980:123:9a$v6lan\::1";
-		$v6lan = sprintf "%02x", $routerlan - $netstart;
-		push @all, "router $routerno if2 192.168.$routerlan.$routerip "
-			 . "2a03:4980:123:9a$v6lan\::$routerip";
+		push @nodes, [ 'router', $routerno, $l1, 1, $routerlan, $routerip ];
+		push @routes, [ $l1, $routerlan, $routerip ],
+			      [ $routerlan, $l1, 1 ];
 		push @routers, [$routerno, $rx, $ry, $routerlan];
 		$rspec .= <<"EOF";
-  <node client_id="router$routerno" exclusive="true" component_manager_id="urn:publicid:IDN+pllab.pl+authority+cm">
-    <sliver_type name="raw-router"/>
+  <node client_id="router$routerno" exclusive="true" component_manager_id="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm">
+    <sliver_type name="raw-pc">
+      <disk_image name="urn:publicid:IDN+wall2.ilabt.iminds.be+image+emulab-ops:UBUNTU20-64-STD"/>
+    </sliver_type>
     <location xmlns="http://jfed.iminds.be/rspec/ext/jfed/1" x="$rx" y="$ry"/>
     <interface client_id="router$routerno:if0">
       <ip address="10.0.$l1.1" netmask="255.255.255.0" type="ipv4"/>
     </interface>
     <interface client_id="router$routerno:if1">
-      <ip address="192.168.$l1.1" netmask="255.255.255.0" type="ipv4"/>
+      <ip address="$pr4.$l1.1" netmask="255.255.255.0" type="ipv4"/>
     </interface>
     <interface client_id="router$routerno:if2">
-      <ip address="192.168.$routerlan.$routerip" netmask="255.255.255.0" type="ipv4"/>
+      <ip address="$pr4.$routerlan.$routerip" netmask="255.255.255.0" type="ipv4"/>
     </interface>
   </node>
   <link client_id="link$linkno">
-    <component_manager name="urn:publicid:IDN+pllab.pl+authority+cm"/>
+    <component_manager name="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm"/>
     <interface_ref client_id="router$r1:if2"/>
     <interface_ref client_id="router$r2:if2"/>
     <interface_ref client_id="router$routerno:if1"/>
@@ -289,13 +281,11 @@ EOF
       <ip address="10.0.$serverlan.$serverip" netmask="255.255.255.0" type="ipv4"/>
     </interface>
     <interface client_id="server$serverno:if1">
-      <ip address="192.168.$serverlan.$serverip" netmask="255.255.255.0" type="ipv4"/>
+      <ip address="$pr4.$serverlan.$serverip" netmask="255.255.255.0" type="ipv4"/>
     </interface>
   </node>
 EOF
-	my $v6lan = sprintf "%02x", $serverlan - $netstart;
-	push @all, "server $serverno if1 192.168.$serverlan.$serverip "
-		 . "2a03:4980:123:9a$v6lan\::$serverip";
+	push @nodes, [ 'server', $serverno, $serverlan, $serverip ];
 	push @servers, "server$serverno";
 	$serverno++;
 	$serverip++;
@@ -303,9 +293,7 @@ EOF
     }
     # now add a single server to direct the operation
     $serverip = 2;
-    my $v6lan = sprintf "%02x", $serverlan - $netstart;
-    push @all, "director 0 if1 192.168.$serverlan.$serverip "
-	     . "2a03:4980:123:9a$v6lan\::$serverip";
+    push @nodes, [ 'director', 0, $serverlan, $serverip ];
     $rspec .= <<"EOF";
   <node client_id="director0" exclusive="true" component_manager_id="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm">
     <sliver_type name="raw-pc">
@@ -317,7 +305,7 @@ EOF
       <ip address="10.0.$serverlan.$serverip" netmask="255.255.255.0" type="ipv4"/>
     </interface>
     <interface client_id="director0:if1">
-      <ip address="192.168.$serverlan.$serverip" netmask="255.255.255.0" type="ipv4"/>
+      <ip address="$pr4.$serverlan.$serverip" netmask="255.255.255.0" type="ipv4"/>
     </interface>
   </node>
 EOF
@@ -329,9 +317,6 @@ EOF
   <link client_id="link$linkno">
     <component_manager name="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm"/>
 EOF
-    $rspec .= <<"EOF" if defined $R;
-    <component_manager name="urn:publicid:IDN+pllab.pl+authority+cm"/>
-EOF
     for my $s (@clients, @servers) {
 	$rspec .= <<"EOF";
     <interface_ref client_id="$s:if1"/>
@@ -342,16 +327,6 @@ EOF
 EOF
     $rspec .= <<"EOF";
     <link_type name="lan"/>
-EOF
-    if (defined $R) {
-	for my $s (@servers) {
-	    $rspec .= <<"EOF";
-    <property source_id="$s:if1" dest_id="router$top_router:if2" capacity="10000"/>
-    <property source_id="router$top_router:if2" dest_id="$s:if1" capacity="10000"/>
-EOF
-	}
-    }
-    $rspec .= <<"EOF";
   </link>
 EOF
 
@@ -443,6 +418,60 @@ EOF
 
 sub create_script {
     # "script" is really just a set of parameters for setup-experiment
-    $script = join("\n", @all, '');
+    # create_rspec() already generated all IP addresses
+    $script = '';
+    my %routes = ();
+    if (@routes) {
+	for my $route (@routes) {
+	    my ($route_to, $route_from, $router_ip) = @$route;
+	    $routes{$route_from}{$route_to} = [ $route_from, $router_ip, 1 ];
+	}
+	# propagate routes across routers
+	my $changed = 1;
+	while ($changed) {
+	    $changed = 0;
+	    for my $route (@routes) {
+		my ($route_via, $route_from, $router_ip) = @$route;
+		for my $route_to (keys %{$routes{$route_via}}) {
+		    $route_to == $route_from and next;
+		    my $metric = 1 + $routes{$route_via}{$route_to}[2];
+		    exists $routes{$route_from}{$route_to}
+			&& $routes{$route_from}{$route_to}[2] <= $metric
+			    and next;
+		    $routes{$route_from}{$route_to} = [ $route_from, $router_ip, $metric ];
+		    $changed = 1;
+		}
+	    }
+	}
+    }
+    for my $node (@nodes) {
+	my ($type, $number, @ips) = @$node;
+	my %local = ();
+	# IP addresses
+	for (my ($i, $p) = (1, 0); $p < @ips; $i++, $p += 2) {
+	    my $lan = $ips[$p];
+	    my $addr = $ips[$p + 1];
+	    $local{$lan} = undef;
+	    $script .= sprintf "node %s %d if%d %s.%d.%d %s:%x::%x\n",
+			       $type, $number, $i,
+			       $pr4, $lan, $addr,
+			       $pr6, $lan + $base6, $addr;
+	}
+	# static routes
+	for (my $p = 0; $p < @ips; $p += 2) {
+	    my $lan = $ips[$p];
+	    my $addr = $ips[$p + 1];
+	    for my $rt (sort { $a <=> $b } keys %{$routes{$lan}}) {
+		exists $local{$rt} and next;
+		my ($rl, $ra) = @{$routes{$lan}{$rt}};
+		$rl == $lan && $ra == $addr and next;
+		$script .= sprintf "rte4 %s %d %s.%d.0/24 %s.%d.%d\n",
+				   $type, $number, $pr4, $rt, $pr4, $rl, $ra;
+		$script .= sprintf "rte6 %s %d %s.%x::/64 %s:%x::%x\n",
+				   $type, $number, $pr6, $rt + $base6,
+						   $pr6, $rl + $base6, $ra;
+	    }
+	}
+    }
 }
 

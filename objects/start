@@ -9,7 +9,7 @@ number="$4"
 size="$5"
 
 # setup-node writes the name of the interface to use for packets here
-interface="`cat /tmp/interface`"
+interface="`head -1 /tmp/interface`"
 
 # select a random server IPv6 address, if the experiment requires it
 server="` \
@@ -22,16 +22,16 @@ server="` \
 # can do that
 if [ -x "/tmp/experiment/prepare-$experiment-$type" ]
 then
-    "/tmp/experiment/prepare-$experiment-$type"
+    "/tmp/experiment/prepare-$experiment-$type" "$server" "$interface"
 elif [ -x "/tmp/experiment/prepare-$experiment" ]
 then
-    "/tmp/experiment/prepare-$experiment"
+    "/tmp/experiment/prepare-$experiment" "$server" "$interface"
 elif [ -x "/tmp/experiment/prepare-$type" ]
 then
-    "/tmp/experiment/prepare-$type"
+    "/tmp/experiment/prepare-$type" "$server" "$interface"
 elif [ -x "/tmp/experiment/prepare" ]
 then
-    "/tmp/experiment/prepare"
+    "/tmp/experiment/prepare" "$server" "$interface"
 fi
 
 # run the scheduler for clients only

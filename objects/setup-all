@@ -2,6 +2,8 @@
 
 ssh='ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa'
 
+chmod 600 /tmp/experiment/id_rsa
+
 # set up all servers, clients and the director itself
 while read what type number host port user
 do

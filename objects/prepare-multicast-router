@@ -1,0 +1,25 @@
+#!/bin/sh
+
+# make a new pim6sd configuration file for this router
+exec > /tmp/pim6sd
+
+# disable all interfaces which are not listed as configured by us
+ip link list | awk '/^[1-9][0-9]*:/ { print $2 }' | while read interface
+do
+    interface="${interface%:}"
+    [ "$interface" = lo ] && continue
+    grep -q "^$interface"'$' /tmp/interface && continue
+    echo "phyint $interface disable;"
+done
+
+while read interface
+do
+    echo "phyint $interface enable;"
+done < /tmp/interface
+
+# the last interface will be the one closest to the servers
+
+echo "cand_bootstrap_router;"
+echo "cand_rp;"
+echo "group_prefix ff1e::/16;"
+
