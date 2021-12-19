@@ -37,11 +37,11 @@ done < /tmp/experiment/setup-data
 # see if we need to set up any other routes
 while read what type number rto via
 do
-    [ "$what" = RTE4 ] || [ "$WHAT" = RTE6 ] || continue
+    [ "$what" = RTE4 ] || [ "$what" = RTE6 ] || continue
     [ "$type" = "$r_type" ] || continue
     [ "$number" = "$r_number" ] || continue
     af="${what#RTE}"
-    sudo ip -$ad route add "$rto" via "$via"
+    sudo ip -$af route add "$rto" via "$via"
 done < /tmp/experiment/setup-data
 
 exit $code

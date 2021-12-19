@@ -467,7 +467,7 @@ sub create_script {
 		$rl == $lan && $ra == $addr and next;
 		$script .= sprintf "rte4 %s %d %s.%d.0/24 %s.%d.%d\n",
 				   $type, $number, $pr4, $rt, $pr4, $rl, $ra;
-		$script .= sprintf "rte6 %s %d %s.%x::/64 %s:%x::%x\n",
+		$script .= sprintf "rte6 %s %d %s:%x::/64 %s:%x::%x\n",
 				   $type, $number, $pr6, $rt + $base6,
 						   $pr6, $rl + $base6, $ra;
 	    }
