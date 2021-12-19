@@ -13,7 +13,7 @@ $R router levels:
 
 exp="S${S}R${R}L$L"
 mkdir /tmp/$exp
-./bin/mknet S=$S L=$L $=$R EXP=$exp [other options, see below]
+./bin/mknet S=$S L=$L R=$R EXP=$exp [other options, see below]
 
 other options:
     PWD=~/data/login.pwd     file containing password for login.pem
@@ -62,4 +62,8 @@ On the director itself, start by setting up all the other nodes:
 And then run the experiment:
 
 /tmp/experiment/run-experiment
+
+Alternatively to leave the experiment running until the testbed expires:
+
+while true; do /tmp/experiment/run-experiment; done
 
