@@ -1,0 +1,9 @@
+select experiment, schedule, datasize, count(*), avg(value) D, max(value), min(value)
+from lwmon_data
+where run like '20211219%'
+ and host like 'server%'
+ and name = 'intf'
+ and key = 'bytes_sent'
+group by experiment, schedule, datasize
+order by schedule, datasize, D;
+

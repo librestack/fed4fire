@@ -111,3 +111,15 @@ lwmon -P- -R "$DST_DIR"/server0.multicast.immediate.128.20211219135844
 
 See lwmon(1) for other options
 
+Alternatively, the data can be imported into a SQLite database.  Create the
+database with:
+
+sqlite3 database.sqlite < sql/create_table
+
+Then import data with:
+
+./bin/import-into-sqlite "$DST_DIR"/* | sqlite3 database.sqlite
+
+The sql directory contains some simple SELECT statements to extract some
+information. More useful reports are planned.
+

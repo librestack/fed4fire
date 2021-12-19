@@ -1,0 +1,13 @@
+create table lwmon_data (
+    host varchar(255),
+    experiment varchar(255),
+    schedule varchar(255),
+    datasize int,
+    run int,
+    timestamp int,
+    name varchar(255),
+    parm varchar(255),
+    key varchar(255),
+    value int
+);
+
