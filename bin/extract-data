@@ -1,0 +1,24 @@
+#!/bin/sh
+
+[ $# -ge 3 ] || { echo "Usage: $0 SRC_DIR DST_DIR PATTERN [PATTERN]" >&2; exit 1; }
+SRC_DIR="$1"; shift
+DST_DIR="$1"; shift
+
+# test the directories
+( cd "$SRC_DIR" ) || exit 1
+mkdir -p "$DST_DIR" || exit 1
+
+for pattern
+do
+    for src in "$SRC_DIR"/$pattern
+    do
+	[ -f "$src" ] || continue # pattern did not match anything
+	ts="`basename "$src"`"
+	[[ "$ts" =~ -[0-9][0-9]*\.tar ]] || continue # not one of our experiment files
+	echo "$ts"
+	ts="${ts##*-}"
+	ts="${ts%%.*}"
+	tar xf "$src" -C "$DST_DIR" --transform='s:$:'".$ts:"
+    done
+done
+

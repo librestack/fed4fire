@@ -85,3 +85,29 @@ them to all other nodes:
 There is currently no automated way to copy back edits done on the testbed
 itself.
 
+==============================================
+
+To extract the data produced by the experiments to a set of files in a
+directory, if the data is in $SRC_DIR and the results will go into
+$DST_DIR:
+
+./bin/extract-data "$SRC_DIR" "$DST_DIR" '*'
+
+Or to extract only some files matching PATTERNS:
+
+./bin/extract-data "$SRC_DIR" "$DST_DIR" PATTERNS
+
+The extracted files in $DST_DIR will have names like
+
+NODE.EXPERIMENT.SCHEDULING.SIZE.TIMESTAMP
+
+for example:
+
+server0.multicast.immediate.128.20211219135844
+
+These are lwmon binary files; to display the contants (install lwmon and) type:
+
+lwmon -P- -R "$DST_DIR"/server0.multicast.immediate.128.20211219135844
+
+See lwmon(1) for other options
+
