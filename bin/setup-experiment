@@ -99,7 +99,6 @@ for my $sz (split(/,/, $SIZES)) {
 }
 close SD or die "$DIR/$EXP/sizes: $!\n";
 
-print "\n"; system 'cat', "$DIR/$EXP/setup-data"; exit 0; # XXX
 my @ssh = qw(ssh -oCheckHostIP=no -oStrictHostKeyChecking=no);
 
 # copy binaries and experiment data to director
