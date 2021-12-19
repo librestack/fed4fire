@@ -4,12 +4,19 @@ Put the login.pem file in ~/data (this location is currently hardcoded)
 
 To create the "LAN" experiment with $S servers and $C clients:
 
+S=...
+C=...
+
 exp="S${S}L$C"
 mkdir /tmp/$exp
 ./bin/mknet S=$S L=$C EXP=$exp [other options, see below]
 
 To create the "WAN" experiment with $S servers, $L clients per LAN and
 $R router levels:
+
+S=...
+L=...
+R=...
 
 exp="S${S}R${R}L$L"
 mkdir /tmp/$exp
@@ -36,11 +43,12 @@ to check progress:
 
 tail /tmp/$exp/debug.txt
 
-To prepare the testbed for the experiment:
+To prepare the testbed for the experiment using $SIZES data sizes
+(a comma-separate list, in megabytes)
 
-./bin/setup-experiment SIZES $exp
+SIZES=...
 
-where SIZES is a comma-separated list of file sizes to run, in megabytes
+./bin/setup-experiment $SIZES $exp
 
 This currently copies all the information to the testbed but does not set
 things up and run the experiment.  Log in to the "director":
@@ -66,4 +74,14 @@ To log in to any other node:
 To run a command using ssh:
 
 ./bin/ssh-experiment $exp NODE_NAME PROGRAM [ARGUMENTS]
+
+If the scripts have been edited locally, they can be updated on the testbed
+by re-running setup-experiment locally, then asking director0 to copy
+them to all other nodes:
+
+./bin/setup-experiment SIZES $exp
+./bin/ssh-experiment $exp director0 /tmp/experiment/copy-experiment
+
+There is currently no automated way to copy back edits done on the testbed
+itself.
 

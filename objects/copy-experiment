@@ -3,19 +3,13 @@
 ssh='ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa'
 
 chmod 600 /tmp/experiment/id_rsa
-/tmp/experiment/copy-experiment
 
 # set up all servers, clients and the director itself
 while read what type number host port user
 do
     [ "$what" = NODE ] || continue
-    echo "Setting up $type$number"
-    if [ "$type" = director ]
-    then
-	/tmp/experiment/setup-node "$type" "$number"
-    else
-	sshrun="$ssh -p$port $user@$host -n"
-	$sshrun /tmp/experiment/setup-node "$type" "$number"
-    fi
+    [ "$type" = director ] && continue
+    echo "Copying experiment data to $type$number"
+    rsync -avHPe "$ssh -p$port" /tmp/experiment/ $user@$host:/tmp/experiment/ < /dev/null
 done < /tmp/experiment/setup-data
 
