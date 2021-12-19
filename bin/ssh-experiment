@@ -1,0 +1,43 @@
+#!/usr/bin/perl -w
+
+use strict;
+
+@ARGV >= 2 or die "Usage: $0 EXP_NAME [DIR] NODE [PROGRAM_TO_RUN]\n";
+my $EXP = shift @ARGV;
+my $NODE = shift @ARGV;
+my $DIR = "/tmp";
+if ($NODE =~ m|^/|) {
+    @ARGV >= 1 or die "Usage: $0 EXP_NAME [DIR] NODE [PROGRAM_TO_RUN]\n";
+    $DIR = $NODE;
+    $NODE = shift @ARGV;
+}
+my @RUN = @ARGV;
+
+my %ansible_nodes;
+my $hf = "$DIR/$EXP/ansible/ansible-hosts";
+open (HF, '<', $hf) or die "$hf: $!\n";
+my ($host, $port, $user);
+while (<HF>) {
+    /^\Q$NODE\E\s/ or next;
+    chomp;
+    /\bansible_ssh_host=(\S+)\b/ or die "No host in $_\n";
+    $host = $1;
+    /\bansible_ssh_port=(\d+)\b/ or die "No port in $_\n";
+    $port = $1;
+    /\bansible_ssh_user=(\S+)\b/ or die "No user in $_\n";
+    $user = $1;
+    last;
+}
+close HF;
+
+defined $host or die "Node $NODE not known\n";
+
+my @ssh = (
+    qw(ssh -oCheckHostIP=no -oStrictHostKeyChecking=no),
+    "-p$port",
+    "$user\@$host",
+    @RUN,
+);
+
+exec @ssh;
+

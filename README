@@ -45,15 +45,7 @@ where SIZES is a comma-separated list of file sizes to run, in megabytes
 This currently copies all the information to the testbed but does not set
 things up and run the experiment.  Log in to the "director":
 
-grep director0 /tmp/$exp/ansible/ansible-hosts
-
-Use the information displayed to ssh, for example if it says:
-
-director0       ansible_ssh_host=n109-05.wall2.ilabt.iminds.be  ansible_ssh_port=22     ansible_ssh_user=libreclc 
-
-run:
-
-ssh -p22 libreclc@n109-05.wall2.ilabt.iminds.be
+./bin/ssh-experiment $exp director0
 
 On the director itself, start by setting up all the other nodes:
 
@@ -66,4 +58,12 @@ And then run the experiment:
 Alternatively to leave the experiment running until the testbed expires:
 
 while true; do /tmp/experiment/run-experiment; done
+
+To log in to any other node:
+
+./bin/ssh-experiment $exp NODE_NAME
+
+To run a command using ssh:
+
+./bin/ssh-experiment $exp NODE_NAME PROGRAM [ARGUMENTS]
 
