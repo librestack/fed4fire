@@ -30,7 +30,7 @@ do
 	    while read what type number host port user
 	    do
 		[ "$what" = NODE ] || continue
-		[ "$type" = server -o "$type" = client ] || continue
+		[ "$type" = server -o "$type" = client -o "$type" = router ] || continue
 		sshrun="$ssh -p$port $user@$host -n"
 		$sshrun /tmp/experiment/start "$schedule" "$experiment" \
 		    "$type" "$number" "$size" &

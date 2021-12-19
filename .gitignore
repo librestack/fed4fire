@@ -1,4 +1,5 @@
 *.aux
 *.log
 .*.sw[po]
+objects/src
 report/experiment.pdf

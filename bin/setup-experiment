@@ -74,17 +74,17 @@ my $bin = "$Bin/../objects";
 chdir $bin or die "$bin: $!\n";
 
 # create setup data
-open(SD, '>', "$DIR/$EXP/setup-data") or die "$DIR/$EXP/setup-data: $!\n";
+open(SD, '>', "$DIR/$EXP/setup-data.tmp") or die "$DIR/$EXP/setup-data.tmp: $!\n";
 $hslen += 4;
 for my $node (sort keys %our_nodes) {
     my ($type, $number, $h, $p, $u, $hs) = @{$ansible_nodes{$node}};
     print SD "NODE $type $number $h $p $u\n"
-	or die "$DIR/$EXP/setup-data: $!\n";
+	or die "$DIR/$EXP/setup-data.tmp: $!\n";
     printf "NODE %-10s %s@%-${hslen}s", $node, $u, "$hs:$p";
     for my $item (@{$our_nodes{$node}}) {
 	my ($hwaddr, $ipv4, $ipv6) = @$item;
 	print SD "ADDR $type $number $hwaddr $ipv4 $ipv6\n"
-	    or die "$DIR/$EXP/setup-data: $!\n";
+	    or die "$DIR/$EXP/setup-data.tmp: $!\n";
 	printf "     %-17s %-16s %s\n", $hwaddr, $ipv4, $ipv6;
     }
     for my $item (@{$our_routes{$node}}) {
@@ -92,12 +92,16 @@ for my $node (sort keys %our_nodes) {
 	print SD "RTE$af $type $number $to $via\n";
     }
 }
-close SD or die "$DIR/$EXP/setup-data: $!\n";
-open(SD, '>', "$DIR/$EXP/sizes") or die "$DIR/$EXP/sizes: $!\n";
+close SD or die "$DIR/$EXP/setup-data.tmp: $!\n";
+update_file('setup-data');
+
+# create "sizes" list
+open(SD, '>', "$DIR/$EXP/sizes.tmp") or die "$DIR/$EXP/sizes.tmp: $!\n";
 for my $sz (split(/,/, $SIZES)) {
-    print SD "$sz\n" or die "$DIR/$EXP/sizes: $!\n";
+    print SD "$sz\n" or die "$DIR/$EXP/sizes.tmp: $!\n";
 }
-close SD or die "$DIR/$EXP/sizes: $!\n";
+close SD or die "$DIR/$EXP/sizes.tmp: $!\n";
+update_file('sizes');
 
 my @ssh = qw(ssh -oCheckHostIP=no -oStrictHostKeyChecking=no);
 
@@ -125,5 +129,24 @@ sub run {
     $? == -1 and die "$prog[0]: $!\n";
     $? & 0x7f and die "$name: killed by signal " . ($? & 0x7f) . "\n";
     die "$name: exited with status " . ($? >> 8) . "\n";
+}
+
+sub update_file {
+    my ($name) = @_;
+    if (open(OLD, '<', "$DIR/$EXP/$name")) {
+	open(NEW, '<', "$DIR/$EXP/$name.tmp") or die "$DIR/$EXP/$name.tmp: $!\n";
+	local $/ = undef;
+	my $old = <OLD>;
+	my $new = <NEW>;
+	close NEW;
+	close OLD;
+	defined $old or die "$DIR/$EXP/$name.tmp: empty file?\n";
+	if (defined $new && $new eq $old) {
+	    unlink "$DIR/$EXP/$name.tmp";
+	    return;
+	}
+    }
+    rename("$DIR/$EXP/$name.tmp", "$DIR/$EXP/$name")
+	or die "rename($DIR/$EXP/$name.tmp, $DIR/$EXP/$name): $!\n";
 }
 

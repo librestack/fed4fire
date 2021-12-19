@@ -4,5 +4,5 @@
 
 sudo killall -TERM iotupd
 sleep 1
-sudo killall -KILL iotupd
+sudo killall -KILL iotupd >/dev/null 2>&1
 

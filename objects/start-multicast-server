@@ -2,5 +2,7 @@
 
 # run iotupd until the end of the experiment
 
-exec sudo iotupd /tmp/datafile "$1" 0.37500 >/dev/null 2>&1
+routers=`awk '/^NODE router/ { print $3 }' /tmp/experiment/setup-data | sort -u | wc -l`
+delay=$(( 37500 + ( 27500 * $routers ) ))
+exec sudo iotupd /tmp/datafile "$1" 0.$delay >/dev/null 2>&1
 
