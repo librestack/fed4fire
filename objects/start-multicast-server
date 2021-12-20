@@ -4,5 +4,5 @@
 
 routers=`awk '/^NODE router/ { print $3 }' /tmp/experiment/setup-data | sort -u | wc -l`
 delay=$(( 37500 + ( 27500 * $routers ) ))
-exec sudo iotupd /tmp/datafile "$1" 0.$delay >/dev/null 2>&1
+exec sudo iotupd /tmp/datafile ff1e::42 0.$delay "$1" >/dev/null 2>&1
 
