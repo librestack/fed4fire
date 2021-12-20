@@ -52,6 +52,13 @@ sed -e 's/\[TYPE\]/'"$type"'/g' \
     -e 's/\[SIZE\]/'"$size"'/g' \
     /tmp/experiment/lwmon-config > /tmp/lwmon-config
 
+ifnum=0
+while read ifname
+do
+    ifnum=$(( 1 + $ifnum ))
+    echo "network if$ifnum 1 $ifname" >> /tmp/lwmon-config
+done < /tmp/interface
+
 rm -r /tmp/results >/dev/null 2>&1
 mkdir /tmp/results
 lwmon -c /tmp/lwmon-config

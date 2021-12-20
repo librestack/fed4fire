@@ -13,7 +13,6 @@ print /tmp/results/[TYPE][NODE].[EXPERIMENT].[SCHEDULE].[SIZE] overwrite binary
 
 load lavg 1
 memory memswap 1
-network intf 1 [INTERFACE]
 
 program experiment 5 /tmp/experiment/start-[EXPERIMENT]-[TYPE] [INTERFACE] [SERVER]
 
