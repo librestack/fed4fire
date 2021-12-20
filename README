@@ -82,8 +82,20 @@ them to all other nodes:
 ./bin/setup-experiment SIZES $exp
 ./bin/ssh-experiment $exp director0 /tmp/experiment/copy-experiment
 
-There is currently no automated way to copy back edits done on the testbed
-itself.
+To copy data to/from a node in the experiment, there are two scripts,
+rsync-to-experiment and rsync-from-experiment, called as:
+
+./bin/rsync-to-experiment EXP_NAME NODE RSYNC_OPTIONS LOCAL_SOURCE [LOCAL_SOURCE]... REMOTE_DEST
+./bin/rsync-from-experiment EXP_NAME NODE RSYNC_OPTIONS REMOTE_SOURCE [REMOTE_SOURCE]... LOCAL_DEST
+
+for example after building new binaries in /tmp/binaries on director0 one
+could copy them back to the objects directory with:
+
+./bin/rsync-from-experiment $exp director0 -avHP /tmp/binaries/ objects/
+
+or for more complicated rsync options:
+
+./bin/rsync-from-experiment $exp director0 '-avHP --delete' /tmp/binaries/ objects/
 
 ==============================================
 
