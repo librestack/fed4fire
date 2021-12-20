@@ -23,6 +23,9 @@ do
 	for schedule in /tmp/experiment/schedule-*
 	do
 	    schedule="${schedule##*schedule-}"
+	    # make sure the 1-minute load average on all nodes is back to its
+	    # baseline value (probably 0) before we start this experiment
+	    sleep 60
 	    rm -r /tmp/results >/dev/null 2>&1
 	    mkdir /tmp/results
 	    echo "Running experiment=$experiment schedule=$schedule size=$size"
