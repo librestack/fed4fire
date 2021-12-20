@@ -1,7 +1,6 @@
 select experiment, schedule, datasize, count(*), avg(value) D, max(value), min(value)
 from lwmon_data
-where run like '20211219%'
- and host like 'client%'
+where host like 'client%'
  and name = 'experiment'
  and key = 'wallclock'
 group by experiment, schedule, datasize
