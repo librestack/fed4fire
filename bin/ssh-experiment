@@ -32,8 +32,17 @@ close HF;
 
 defined $host or die "Node $NODE not known\n";
 
+my @key;
+my $try_key = 'objects/id_rsa';
+if (-f $try_key) {
+    # need to silence ssh as git will create the file with mode 644
+    chmod 0600, $try_key;
+    @key = ('-i', $try_key);
+}
+
 my @ssh = (
     qw(ssh -oCheckHostIP=no -oStrictHostKeyChecking=no),
+    @key,
     "-p$port",
     "$user\@$host",
     @RUN,

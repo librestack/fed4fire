@@ -105,6 +105,13 @@ update_file('sizes');
 
 my @ssh = qw(ssh -oCheckHostIP=no -oStrictHostKeyChecking=no);
 
+my $try_key = 'objects/id_rsa';
+if (-f $try_key) {
+    # need to silence ssh as git will create the file with mode 644
+    chmod 0600, $try_key;
+    push @ssh, ('-i', $try_key);
+}
+
 # copy binaries and experiment data to director
 my ($d_type, $d_node, $d_host, $d_port, $d_user) = @{$ansible_nodes{director0}};
 rsync($d_host, $d_port, $d_user, '/tmp/experiment',
