@@ -2,7 +2,7 @@
 
 \title{Comparing performance of IPv6 multicast and unicast for software updates}
 \author{Claudio Calvelli}
-\date{Draft 0.2 \today}
+\date{Draft 0.3 \today}
 
 \setlength{\unitlength}{0.01\linewidth}
 
@@ -53,35 +53,51 @@ easy to simulate realistically by measuring the impact of copying
 a large file to a large number of nodes.
 
 To provide evidence for the above statements, we compare the
-following three scenarios:
+following methods of providing updates:
 
 \begin{itemize}
-\item Traditional unicast: a number of servers send a copy of each
-software update to each client requiring a file for download
-(representing the network activity of a software update)
+\item Traditional unicast using a TCP-based service: a number
+of servers listen to TCP requests to send a copy of the software
+update, and each client selects a server at random and requests
+the update from it: this is the mechanism used by the vast
+majority of current services.
 \item Full multicast: a number of servers provide the software
 update using multicast, and clients will obtain the updates by
-joining a multicast group and waiting for the data to arrive
-\item Hybrid system: in the absence of multicast routing in a
-majority of nodes, some other technology can work around thia
-problem but without being able to provide the full advantages
-of multicast; we include this to show that there are advantages
-in using the transitional technology provided by librecast,
-but also to show that it cannot provide the full advantages
-of IPv6 multicast.
+joining a multicast group and waiting for the data to arrive.
+\item Unicast using a UDP-based service: this is similar to the
+TCP case, but uses datagrams instead of virtual circuits: this
+mechanism is introduced because multicast is by necessity based
+on datagrams--there is no feedback from receiver to sender--and
+we want to help determine which differences may be caused by
+unicast vs.\ multicast, and which ones by virtual circuits vs\.
+datagrams.
+\end{itemize}
+
+Independently of the scenario selected, there are two ``client''
+scheduling strategies:
+
+\begin{itemize}
+\item All clients request updates at approximately the same time
+(the ``immediate'' strategy).
+\item Clients wait a random time before requesting the update
+(the ``random'' strategy).
 \end{itemize}
 
 We run the simulated software updates in a variety of network
 configurations and with a variety of file sizes to simulate the
 impact of different types of updates; in each case we measure network
-use, server load, client load and speed of update for each of the three
-scenarios described, \TODO{Can we measure power consumption as well?}
+use, server load, client load and speed of update for each combination
+of update mechanism and scheduling strategy.
 
 The rest of this report is structured as follows:
 
-Sections~\ref{LAN:experiment} and~\ref{WAN:experiment} describe two
-different simulated network topologies, both dependent on a number
-of parameters, and the experiments we run on them.
+Section~\ref{LAN:experiment} describes the simplest possible network
+topology in which we can get useful measurements, and provides details
+on how we run the experiment.
+
+Sections~\ref{TWOLAN:experiment} and~\ref{GEN:experiment} describe
+two more network topologies, incresing the complexity and studying
+how different features affect the results.
 
 Section~\ref{results} analyses the result of the experiment and compares
 the efficiency of unicast, multicast, and the transitional technology.
@@ -100,14 +116,7 @@ simplest possible setting, and one which is possible on any existing
 local network in which IPv6 is enabled, and could represent for example
 distributing updates within an organisation.
 
-in the network path between each server and each client, and the clients
-are connected to a LAN, at ${\cal L}$ clients on each local network.
-For this experiments, all the servers share a LAN.
-This is of course a simplified view of a real system but allows to
-compare the impact of various methods of software updates in a variety
-of circumstances.
-
-The last experimental parameters indicates the size of the software updates
+The third experimental parameters indicates the size of the software updates
 as the number ${\cal N}$ of bytes contained in it.  In the real world,
 clients may be more or less up-to-date so that each one may request a
 subset of all updates available; for this experiment we assume that
@@ -134,22 +143,80 @@ Figure~\pref{s2:c8}
 \caption{Network with 2 servers and 8 clients on a single LAN}
 \label{s2:c8}
 \end{figure}
-shows the network topology with ${\cal S} = 3$, ${\cal R} = 3$ and
-${\cal L} = 2$, so that there are 3 servers sending data to 8 clients
-organised in 4 separate LANs;
+shows the network topology with ${\cal S} = 3$ and ${\cal C} = 8$, so
+that there are 3 servers sending data to 8 clients on a single LAN.
 
-Each experiment run will select a network topology (i.e.\ values
-for ${\cal S}$ and ${\cal C}$) and an update size ${\cal N}$,
-then run twice with the two update mechanisms which make sense
-in this simplified network: the hybrid experiment is identical
-to the multicast one in this case.
+\subsection{Experiment procedure}
+For a specified network topology (i.e.\ values for ${\cal S}$ and ${\cal C}$),
+and a list of update sizes (several distinct values for ${\cal N}$),
+we implement that network on an experiment testbed, then run a series of
+tests on it using all possible combinations of update size, update method
+and scheduling strategy.  For organisational reasons, the testbed actually
+has ${\cal S} + 1$ servers, the extra server does not take part in the
+update but directs the operations and collects results (we call this extra
+server the ``director'').
 
-We run each experiment until all clients have succeeded obtaining
-a copy of the software update. During this time, various resource
-usages are monitored to show the impact of an update mechanism on
-servers, network, switches and clients. Additionally, the time each
-client takes to obtain the software update is measured, reporting
-the minimum, average and maximum time experienced by the clients.
+Each test starts with the director generating a file of the specified size
+filled with random data; this is copied to all servers, so they all provide
+an identical update.  Then the director waits 60 seconds to make sure that
+the 1-minute load average of each node in the system is down to its
+baseline value; when we ran experiments without this wait, we had each
+run affecting the measurements of the next one, so it did not produce
+useful numbers.
+
+After the 60 seconds wait, the director asks all server nodes to start:
+this means that two daemons start on each server, a resource monitoring
+tool and the update provider appropriate for the selected update method.
+These update providers are described below.
+
+After all servers have started, the director asks all client nodes to
+start as well: each client will first wait a short time depending on
+the scheduling strategy: a fixed 4 seconds for ``immediate'' or a
+random duration between 4 and 36 seconds for ``random''; the minimum
+wait of 4 seconds is to make sure the rest of the system is fully
+ready to run. After this delay, each client starts a resource monitoring
+daemon identical to the one running on each server, and a client
+program to obtain the update.
+
+When a client has successfully obtained the update, the monitoring
+daemon will record the time it has taken, finish another round of
+resource measurements, and sends all the data back to the director.
+
+The director waits for all clients to have sent the data, then asks
+the servers to stop, at which point the servers will also send all
+their resource measurements back to the director: all these measurements
+are collected and copied to an external server for analysis.
+
+The resource monitoring daemon records the following data every
+second:
+
+\begin{itemize}
+\item 1-minute load average as provided by the system
+\item memory and swap use
+\item bytes sent and received on the network interface used to
+transfer the update data
+\end{itemize}
+
+Additionally, at the end of the experiment it also records the following
+data about the update program itself (update provider for servers, or
+the program obtaining the update for clients):
+
+\begin{itemize}
+\item Time elapsed between start and termination of the program, in milliseconds
+\item CPU time used by the program itself, in milliseconds
+\item CPU time used by the operating system to run the program, in milliseconds
+(this includes, for example, time used to obtain data from disk)
+\item The termination status: whether the program reported an error
+\end{itemize}
+
+Since the experiment procedure is automated by running a single program
+on the director, where possible we ran it many times on the same
+testbed, to have more experimental data without the extra overhead
+of setting up a new testbed.
+
+\subsection{Update methods}
+\TODO{describe the three update methods in more detail and update
+for the methods we are actually using}
 
 For the ``unicast'' experiment, each client selects a server at random,
 connects to that server, downloads the file, calculates a checksum
@@ -162,8 +229,59 @@ left the multicast group at this point).  Each client will
 join the group, wait until it has all the required data and
 the checksum is valid, then leave the group and stop.
 
-\section{The ``WAN'' experiment}
-\label{WAN:experiment}
+\section{The ``Two LANs'' experiment}
+\label{TWOLAN:experiment}
+
+Similar to the previous experiment, but we investigate the effect of
+a multicast router in the network: there are two LANs connected together
+by a single router; all the servers are on the first LAN, and all the
+clients are on the second LAN.  Like the previous experiments, the
+parameters are the number of servers $\cal S$), the number of clients
+${\cal C}$ clients, and the update size in bytes ${\cal N}$.
+
+Figure~\pref{s3:r1:l8}
+\begin{figure}[bpt]
+\begin{center}
+\begin{picture}(90,41)
+\multiput(20,34)(25,0){3}{\makebox(0,0){\rm\bf S}}
+\multiput(20,28)(25,0){3}{\line(0,1){3}}
+\put(20,28){\line(1,0){50}}
+\put(45,25){\line(0,1){3}}
+\put(45,22){\makebox(0,0){\rm\bf R}}
+\put(45,16){\line(0,1){3}}
+\put(10,16){\line(1,0){70}}
+\multiput(10,13)(10,0){8}{\line(0,1){3}}
+\multiput(10,10)(10,0){8}{\makebox(0,0){\rm\bf C}}
+\end{picture}
+\end{center}
+\hspace*{\fill}%
+\mbox{{\bf S} = server;}%
+\hspace*{\fill}%
+\mbox{{\bf R} = router;}%
+\hspace*{\fill}%
+\mbox{{\bf C} = client}%
+\hspace*{\fill}
+\caption{Two LANs network, with 3 servers and 8 clients}
+\label{s3:r1:l8}
+\end{figure}
+shows the network topology with ${\cal S} = 3$ and ${\cal C} = 8$,
+so that there are 3 servers sending data to 8 clients.
+
+The experimental procedure is very similar to the previous experiment,
+we only describe the differences between them here.
+
+After copying the update data to all servers and waiting 60 seconds, the
+director will ask the router to start its own resource monitoring, and,
+for the multicast experiment, to start a multicast routing daemon.
+
+The servers wait 2 seconds before start, to give the router time to be
+fully set up.
+
+After that, the experiment proceeds identically with the director starting
+all clients and waiting for results.
+
+\section{The ``Generic'' experiment}
+\label{GEN:experiment}
 
 A number of servers (denoted by $\cal S$) provide software updates for
 ${\cal C} = {\cal L} * 2^{{\cal R} - 1}$ clients; there are ${\cal R}$ routers
@@ -191,7 +309,6 @@ Figure~\pref{s3:r3:l2}
 \put(20,52){\line(1,0){50}}
 \put(45,49){\line(0,1){3}}
 \put(45,46){\makebox(0,0){\rm\bf R}}
-\put(45,43){\line(0,1){3}}
 \put(45,40){\line(0,1){3}}
 \put(25,40){\line(1,0){40}}
 \multiput(25,37)(40,0){2}{\line(0,1){3}}
@@ -228,7 +345,6 @@ for comparison, figure~\pref{s3:r4:l1}
 \put(20,61){\line(1,0){50}}
 \put(45,58){\line(0,1){3}}
 \put(45,55){\makebox(0,0){\rm\bf R}}
-\put(45,52){\line(0,1){3}}
 \put(45,49){\line(0,1){3}}
 \put(25,49){\line(1,0){40}}
 \multiput(25,46)(40,0){2}{\line(0,1){3}}
