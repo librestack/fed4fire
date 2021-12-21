@@ -105,6 +105,10 @@ the efficiency of unicast, multicast, and the transitional technology.
 Section~\ref{future} explores the possibility of further experiments,
 to make the simulation more realistic and more complete.
 
+Appendix~\ref{programs} provides some more details about the various
+programs which ran as part of the experiment, and where to find the
+full sources of all these programs.
+
 \section{The ``LAN'' experiment}
 \label{LAN:experiment}
 
@@ -162,7 +166,7 @@ an identical update.  Then the director waits 60 seconds to make sure that
 the 1-minute load average of each node in the system is down to its
 baseline value; when we ran experiments without this wait, we had each
 run affecting the measurements of the next one, so it did not produce
-useful numbers.
+useful results.
 
 After the 60 seconds wait, the director asks all server nodes to start:
 this means that two daemons start on each server, a resource monitoring
@@ -447,8 +451,97 @@ stream with different quality, but in any case we would find it useful
 to run another experiment to measure these costs and compare them with
 the expected savings in terms of network usage.
 
+\appendix
+\section{Programs}
+\label{programs}
+
+To run each experiment we had to implement a network topology on an
+experiment testbed, set up each node in the testbed, run the experiment
+itself and collect the results; additionally, we had to analyse the
+results of groups of experiments together.  This appendix describes
+the programs used for all various tasks, and includes references to
+where the full source code can be found for the programs we developed.
+
+\subsection{Preparing a testbed}
+
+{\em The programs described here and other useful tools are in the experiment
+setup repository~\cite{exp:scripts} under the {\tt bin} directory.}
+
+Given the number of servers, clients and routers (if appropriate to the
+experiment) we developed a simple program to generate action files
+for ``jfed'' so that the process could be automated; a single program
+``mknet'' provided action files for all the experiment topologies
+described in this report by providing appropriate options; for the
+networks shown as examples in the figures we just ran:
+
+\begin{verbatim}
+mknet S=3 L=8
+mknet S=3 R=1 L=8
+mknet S=3 R=2 L=2
+mknet S=3 R=3 L=1
+\end{verbatim}
+
+As can be seen, omitting ``R'' results in a single LAN network in which
+the number of clients is specified by ``L'' for consistency with the
+other networks (where it indicates the number of clients on each client
+LAN).
+
+By default, the program generates an experiment name indicating the parameters
+provided: for the four examples above this would be: ``S3L8'', ``S3R1L8'',
+``S3R2L2'' and ``S3R3L1''; the data generated will be stored in a
+directory inside {\tt/tmp} named after the experiment.
+
+One of the files generated, {\tt action.json}, is suitable for using as
+an action file with the ``jfed-cli'' tool and will provision the testbed;
+the program also generates {\tt action.rspec} which is suitable for
+using with the ``jfed-gui'' tool.  We do not describe these tools here
+as they are provided by fed4fire.
+
+Once the testbed is up and running, we need to copy some things to it,
+for example the actual programs which will run on it and information about
+the experiment to run.  The list of data sizes is also specified at
+this point, for example to run with 32, 64 and 512 megabytes on the
+first single LAN experiment defined above (``S3L8'')
+
+\begin{verbatim}
+setup-experiment 32,64,512 S3L8
+\end{verbatim}
+
+This sets up the ``director'' node.  To complete the setup, one needs to
+connect to it and then run a program there:
+
+\begin{verbatim}
+ssh-experiment S3L8 director0
+/tmp/experiment/setup-all
+\end{verbatim}
+
+The testbed is now ready to run the experiment as many times as one wants.
+
+\subsection{Running an experiment}
+\TODO{ssh-experiment, setup-all, run-experiment}
+
+\subsubsection{Resource monitoring}
+\TODO{lwmon}
+
+\subsubsection{Update programs}
+\TODO{iotupd, iotup, \ldots}
+
+\subsection{Importing results in a database}
+\TODO{extract-data, import-into-sqlite}
+
+\subsection{Analysing results}
+\TODO{extract-result, \ldots}
+
 \section*{References}
-\TODO{No work is an island}
+\bibliographystyle{plain}
+\begin{thebibliography}{99}
+
+\bibitem{exp:scripts}
+  C. Calvelli, E. Payne, B. Sheffield.
+  {\em Fed4fire experiment setup scripts}.
+  git: TODO
+
+\end{thebibliography}
 
 \end{document}
 
