@@ -75,6 +75,7 @@ chdir $bin or die "$bin: $!\n";
 
 # create setup data
 open(SD, '>', "$DIR/$EXP/setup-data.tmp") or die "$DIR/$EXP/setup-data.tmp: $!\n";
+print SD "NAME $EXP\n" or die "$DIR/$EXP/setup-data.tmp: $!\n";
 $hslen += 4;
 for my $node (sort keys %our_nodes) {
     my ($type, $number, $h, $p, $u, $hs) = @{$ansible_nodes{$node}};

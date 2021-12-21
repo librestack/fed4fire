@@ -1,0 +1,210 @@
+#!/usr/bin/perl -w
+
+use strict;
+use DBI;
+use POSIX 'strftime';
+
+@ARGV >= 1 or die "Usage: $0 DATABASE [COMMAND]...\n";
+my $database = shift @ARGV;
+my $dbh = DBI->connect("dbi:SQLite:dbname=$database", '', '',
+		       { RaiseError => 1, ReadOnly => 1 });
+
+my %what = (
+    load    => ['lavg',    '1minute',           0.01,  '%.2f' ],
+    tx      => ['if1',     'bytes_sent',        1e-3,  '%.0f' ],
+    rx      => ['if1',     'bytes_received',    1e-3,  '%.0f' ],
+    tx2     => ['if2',     'bytes_sent',        1e-3,  '%.0f' ],
+    rx2     => ['if2',     'bytes_received',    1e-3,  '%.0f' ],
+    mem     => ['memswap', 'used_memory_pages', 1/256, '%.0f' ],
+    swap    => ['memswap', 'used_swap_pages',   1/256, '%.0f' ],
+);
+
+my @where = ("host = 'server0'"); # see comment below
+my @what;
+while (@ARGV) {
+    my $cmd = shift @ARGV;
+    if ($cmd =~ /^run=(\d+)$/i) {
+	push @where, "run LIKE '$1%'";
+	next;
+    }
+    if ($cmd =~ /^top(?:ology)?=(\S+)$/i) {
+	push @where, "topology = '$1'";
+	next;
+    }
+    if ($cmd =~ /^exp(?:eriment)?=(\S+)$/i) {
+	push @where, "experiment = '$1'";
+	next;
+    }
+    if ($cmd =~ /^sched(?:ule)?=(\S+)$/i) {
+	push @where, "schedule = '$1'";
+	next;
+    }
+    if ($cmd =~ /^(?:data)?size(=|<|>|<=|>=)(\d+)$/i) {
+	push @where, "datasize $1 $2";
+	next;
+    }
+    if ($cmd =~ /^(client|server|router):(\w+)(\/?)$/i) {
+	my ($type, $key, $div) = (lc($1), lc($2), $3);
+	exists $what{$key} or die "Invalid key: $2\n";
+	push @what, [$type, $key, $div];
+	next;
+    }
+    die "Unknown command: $cmd\n";
+}
+@what or die "No data requested\n";
+
+# find all runs: we know a network must have a server0, as there is always
+# at least 1 server; all other hosts will share the same information for
+# the same run
+my $where = join("\n  AND ", @where);
+my @runs = @{ $dbh->selectall_arrayref(<<EOF) };
+SELECT topology, experiment, schedule, datasize, run
+FROM lwmon_data
+WHERE $where
+GROUP BY topology, experiment, schedule, datasize, run;
+EOF
+
+my $host_handle = $dbh->prepare(<<EOF);
+SELECT host
+FROM lwmon_data
+WHERE topology = ?
+  AND experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND run = ?
+GROUP BY host;
+EOF
+
+my $end_handle = $dbh->prepare(<<EOF);
+SELECT timestamp, value
+FROM lwmon_data
+WHERE topology = ?
+  AND experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND run = ?
+  AND host = ?
+  AND name = 'experiment'
+  AND key = 'wallclock'
+EOF
+
+my $data_handle = $dbh->prepare(<<EOF);
+SELECT timestamp, value
+FROM lwmon_data
+WHERE topology = ?
+  AND experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND run = ?
+  AND host = ?
+  AND name = ?
+  AND key = ?
+  order by timestamp
+EOF
+
+for my $run (sort { $a->[4] <=> $b->[4] ||
+		    $a->[1] cmp $b->[1] ||
+		    $a->[2] cmp $b->[2] ||
+		    $a->[3] <=> $b->[3] ||
+		    $a->[0] cmp $b->[0]
+		  } @runs)
+{
+    printf "RUN: %-10s %-10s %-10s %5d  %s\n",
+	   $run->[0], $run->[1], $run->[2], $run->[3], fmt_time($run->[4]);
+    my @hosts = map { $_->[0] }
+		@{ $dbh->selectall_arrayref($host_handle, {}, @$run) };
+    # determine when each client started and completed
+    my (%start, %end);
+    for my $host (@hosts) {
+	$host =~ /^client/ or next;
+	my $wall_time;
+	($end{$host}, $wall_time) = $dbh->selectrow_array($end_handle, {}, @$run, $host);
+	$start{$host} = $end{$host} - int($wall_time / 1000 + .9);
+    }
+    # now extract the data required
+    my $fmt = '%7d';
+    my $title1 = '  num  ';
+    my $title2 = 'clients';
+    my %data;
+    my $column = 0;
+    for my $what (@what) {
+	my ($type, $key, $div) = @$what;
+	my $tl = length $type;
+	my @h = grep { substr($_, 0, $tl) eq $type } @hosts;
+	my $h = join(' ', @h);
+	my $tk = "$type\:$key$div";
+	my ($sp0, $sp1);
+	if (length($tk) < length($h)) {
+	    my $l1 = length($h) - length($tk);
+	    my $l2 = int($l1 / 2);
+	    $l1 -= $l2;
+	    $sp0 = $sp1 = '';
+	    $title1 .= ' | ' . (' ' x $l1) . $tk . (' ' x $l2);
+	    $title2 .= ' | ' . $h;
+	} elsif (length($h) < length($tk)) {
+	    my $l1 = length($tk) - length($h);
+	    my $l2 = int($l1 / 2);
+	    $l1 -= $l2;
+	    $sp0 = ' ' x $l1;
+	    $sp1 = ' ' x $l2;
+	    $title1 .= ' | ' . $tk;
+	    $title2 .= ' | ' . $sp0 . $h . $sp1;
+	}
+	$fmt .= ' |';
+	for my $h (@h) {
+	    $fmt .= $sp0 . ' %' . (length $h) . 's' . $sp1;
+	    my ($name, $item, $scale, $format) = @{$what{$key}};
+	    # get data for this host
+	    for my $data (@{ $dbh->selectall_arrayref($data_handle, {},
+			     @$run, $h, $name, $item) })
+	    {
+		my ($timestamp, $value) = @$data;
+		if ($div) {
+		    $data{$timestamp}[$column] = [$format, $value, $scale];
+		} else {
+		    $data{$timestamp}[$column] = sprintf $format, $value * $scale;
+		}
+	    }
+	    $column++;
+	}
+    }
+    $fmt .= "\n";
+    print "$title1\n$title2\n";
+    my $nc = 0;
+    my $prev = 0;
+    for my $timestamp (sort { $a <=> $b } keys %data) {
+	for my $t (values %start) {
+	    $t > $prev && $t <= $timestamp and $nc++;
+	}
+	for my $t (values %end) {
+	    $t >= $prev && $t < $timestamp and $nc--;
+	}
+	my @prn = ($nc);
+	for (my $i = 0; $i < $column; $i++) {
+	    my $d = $data{$timestamp}[$i];
+	    if (! defined $d) {
+		$d = '';
+	    } elsif (ref $d) {
+		my ($format, $value, $scale) = @$d;
+		$d = sprintf $format, $value * $scale / ($nc || 1);
+	    }
+	    push @prn, $d;
+	}
+	printf $fmt, @prn;
+	$prev = $timestamp;
+    }
+    print "\n";
+}
+
+$dbh->disconnect();
+
+sub fmt_time {
+    my ($ts) = @_;
+    return substr($ts,  0, 4) . '-'
+	 . substr($ts,  4, 2) . '-'
+	 . substr($ts,  6, 2) . ' '
+	 . substr($ts,  8, 2) . ':'
+	 . substr($ts, 10, 2) . ':'
+	 . substr($ts, 12, 2);
+}
+

@@ -1,4 +1,5 @@
 create table lwmon_data (
+    topology varchar(255),
     host varchar(255),
     experiment varchar(255),
     schedule varchar(255),
@@ -10,4 +11,7 @@ create table lwmon_data (
     key varchar(255),
     value int
 );
+
+create index lwmon_data_run
+on lwmon_data(topology, experiment, schedule, datasize, run, host);
 

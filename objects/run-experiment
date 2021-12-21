@@ -2,6 +2,9 @@
 
 ssh='ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa'
 
+# figure out experiment name
+exp="`awk '/^NAME/ { print $2}' /tmp/experiment/setup-data`"
+
 # run an experiment for each requested size
 while read size
 do
@@ -85,7 +88,7 @@ do
 	    done
 	    # create result tarball
 	    echo "Copying results to server"
-	    tarball="/tmp/results-$experiment-$schedule-$size-`date +%Y%m%d%H%M%S`.tar.gz"
+	    tarball="/tmp/$exp-$experiment-$schedule-$size-`date +%Y%m%d%H%M%S`.tar.gz"
 	    tar czf "$tarball" -C /tmp/results .
 	    # copy tarball back to server
 	    scp -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \

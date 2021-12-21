@@ -13,12 +13,13 @@ do
     for src in "$SRC_DIR"/$pattern
     do
 	[ -f "$src" ] || continue # pattern did not match anything
-	ts="`basename "$src"`"
-	[[ "$ts" =~ -[0-9][0-9]*\.tar ]] || continue # not one of our experiment files
-	echo "$ts"
-	ts="${ts##*-}"
-	ts="${ts%%.*}"
-	tar xf "$src" -C "$DST_DIR" --transform='s:$:'".$ts:"
+	run="`basename "$src"`"
+	[[ "$run" =~ -[0-9][0-9]*\.tar ]] || continue # not one of our experiment files
+	echo "$run"
+	top="${run%%-*}"
+	run="${run##*-}"
+	run="${run%%.*}"
+	tar xf "$src" -C "$DST_DIR" --transform='s:$:'".$top.$run:"
     done
 done
 

@@ -111,26 +111,21 @@ Or to extract only some files matching PATTERNS:
 
 The extracted files in $DST_DIR will have names like
 
-NODE.EXPERIMENT.SCHEDULING.SIZE.TIMESTAMP
+NODE.EXPERIMENT.SCHEDULING.SIZE.TOPOLOGY.TIMESTAMP
 
 for example:
 
-server0.multicast.immediate.128.20211219135844
+server0.multicast.immediate.128.S1R2L2.20211219135844
 
 These are lwmon binary files; to display the contants (install lwmon and) type:
 
-lwmon -P- -R "$DST_DIR"/server0.multicast.immediate.128.20211219135844
+lwmon -P- -R "$DST_DIR"/server0.multicast.immediate.128.S1R2L2.20211219135844
 
 See lwmon(1) for other options
 
-Alternatively, the data can be imported into a SQLite database.  Create the
-database with:
+Alternatively, the data can be imported into a SQLite database with:
 
-sqlite3 database.sqlite < sql/create_table
-
-Then import data with:
-
-./bin/import-into-sqlite "$DST_DIR"/* | sqlite3 database.sqlite
+./bin/import-into-sqlite database.sqlite "$DST_DIR"/*
 
 The sql directory contains some simple SELECT statements to extract some
 information. More useful reports are planned.

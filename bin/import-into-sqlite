@@ -1,30 +1,72 @@
 #!/usr/bin/perl -w
 
 use strict;
+use DBI;
 use Cwd 'abs_path';
+
+@ARGV >= 2 or die "Usage: $0 DATABASE SOURCE_FILE [SOURCE_FILE]...\n";
+my $database = shift @ARGV;
+my $dbh = DBI->connect("dbi:SQLite:dbname=$database", '', '',
+		       { RaiseError => 1, AutoCommit => 0 });
+
+run_sql(<<EOF, 1);
+create table if not exists lwmon_data (
+    topology varchar(255),
+    host varchar(255),
+    experiment varchar(255),
+    schedule varchar(255),
+    datasize int,
+    run int,
+    timestamp int,
+    name varchar(255),
+    parm varchar(255),
+    key varchar(255),
+    value int
+);
+
+create index lwmon_data_run
+on lwmon_data(topology, experiment, schedule, datasize, run, host);
+EOF
 
 while (@ARGV) {
     my $name = shift @ARGV;
     my $path = abs_path($name);
     defined $path or die "Something wrong with $name\n";
-    $path =~ m|/\w+\.(\w+)\.(\w+)\.(\d+)\.(\d+)$|
+    $path =~ m|/\w+\.(\w+)\.(\w+)\.(\d+)\.(\w+)\.(\d+)$|
 	or die "Invalid datafile name: $name\n";
-    my ($experiment, $schedule, $size, $run) = ($1, $2, $3, $4);
-    system('lwmon-to-sql',
-	   '-tlwmon_data',
-	   '-Hhost',
-	   "-eexperiment=$experiment",
-	   "-eschedule=$schedule",
-	   "-edatasize=$size",
-	   "-erun=$run",
-	   '-stimestamp',
-	   '-nname',
-	   '-pparm',
-	   '-kkey',
-	   '-dvalue',
-	   $path) == 0 and next;
+    my ($experiment, $schedule, $size, $topology, $run) = ($1, $2, $3, $4, $5);
+    print "Reading $name\n";
+    open(SQL, '-|', 'lwmon-to-sql',
+		    '-tlwmon_data',
+		    '-Hhost',
+		    "-etopology=$topology",
+		    "-eexperiment=$experiment",
+		    "-eschedule=$schedule",
+		    "-edatasize=$size",
+		    "-erun=$run",
+		    '-stimestamp',
+		    '-nname',
+		    '-pparm',
+		    '-kkey',
+		    '-dvalue',
+		    $path) or die "lwmon-to-sql: $!\n";
+    while (<SQL>) {
+	chomp;
+	run_sql($_, 0);
+    }
+    if (close SQL) {
+	run_sql(undef, 1);
+	next;
+    }
     $? == -1 and die "lwmon-to-sql: $!\n";
     $? & 0x7f and die 'lwmon-to-sql killed by signal ' . ($? & 0x7f) . "\n";
     die 'lwmon-to-sql exited with status ' . ($? >> 8) . "\n";
+}
+$dbh->disconnect();
+
+sub run_sql {
+    my ($query, $commit) = @_;
+    defined $query and $dbh->do($query) || die "$query\n" . $dbh->errstr . "\n";
+    $commit and $dbh->commit || die "Commit: " . $dbh->errstr . "\n";
 }
 
