@@ -1,5 +1,7 @@
 \documentclass[a4paper,12pt]{article}
 
+\usepackage{ifpdf}
+
 \title{Comparing performance of IPv6 multicast and unicast for software updates}
 \author{Claudio Calvelli}
 \date{Draft 0.3 \today}
@@ -11,6 +13,18 @@
 \framebox{\parbox{0.9\linewidth}{{\bf TODO: }#1}}%
 \hspace*{\fill}%
 }
+
+% everybody say to just include the hyperref package - it's big, ugly and
+% breaks the next command.  This on the other hand works just fine
+\ifpdf
+\newcommand{\url}[1]{%
+\pdfstartlink %
+attr {/Border [0 0 0]} %
+user {/Subtype /Link /A << /S /URI /URI (#1) >>}%
+{\tt #1}\pdfendlink}
+\else
+\newcommand{\url}[1]{{\tt #1}}
+\fi
 
 \newcommand{\pref}[1]{%
 \ref{#1}%
@@ -471,7 +485,7 @@ for the programs to run on the testbed.}
 
 Given the number of servers, clients and routers (if appropriate to the
 experiment) we developed a simple program to generate action files
-for ``jfed'' so that the process could be automated; a single program
+for ``jfed''~\cite{jfed} so that the process could be automated; a single program
 ``mknet'' provided action files for all the experiment topologies
 described in this report by providing appropriate options; for the
 networks shown as examples in the figures we just ran:
@@ -493,11 +507,11 @@ provided: for the four examples above this would be: ``S3L8'', ``S3R1L8'',
 ``S3R2L2'' and ``S3R3L1''; the data generated will be stored in a
 directory inside {\tt/tmp} named after the experiment.
 
-One of the files generated, {\tt action.json}, is suitable for using as
+One of the files generated, {\tt action.yaml}, is suitable for using as
 an action file with the ``jfed-cli'' tool and will provision the testbed;
 the program also generates {\tt action.rspec} which is suitable for
 using with the ``jfed-gui'' tool.  We do not describe these tools here
-as they are provided by fed4fire.
+as they are provided by fed4fire, but see~\cite{jfed}.
 
 Once the testbed is up and running, we need to copy some things to it,
 for example the actual programs which will run on it and information about
@@ -683,17 +697,23 @@ experiment results in a format suitable for further analysis.
 \section*{References}
 \bibliographystyle{plain}
 \begin{thebibliography}{99}
+\begin{sloppypar}
 
 \bibitem{exp:scripts}
   C. Calvelli, E. Payne, B. Sheffield.
-  {\em Fed4fire experiment setup scripts}.
-  git: TODO
+  {\em Fed4fire experiment setup scripts}.\\
+  \url{https://example.com/TODO-need-url}
 
 \bibitem{lwmon}
   C. Calvelli.
-  {\em lwmon: A {\bf\em l}ight-{\bf\em w}eight system {\bf\em mon}itoring tool}.
-  git: TODO
+  {\em lwmon: A {\bf\em l}ight-{\bf\em w}eight system {\bf\em mon}itoring tool}.\\
+  \url{https://example.com/TODO-need-url}
 
+\bibitem{jfed}
+  {\em jfed 5.9 documentation}.\\
+  \url{https://doc.ilabt.imec.be/jfed-documentation-5.9/index.html}
+
+\end{sloppypar}
 \end{thebibliography}
 
 \end{document}
