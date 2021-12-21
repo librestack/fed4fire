@@ -189,7 +189,8 @@ resource measurements, and sends all the data back to the director.
 The director waits for all clients to have sent the data, then asks
 the servers to stop, at which point the servers will also send all
 their resource measurements back to the director: all these measurements
-are collected and copied to an external server for analysis.
+are collected into a single ``tar'' archive and copied to an external
+server for later analysis.
 
 The resource monitoring daemon records the following data every
 second:
@@ -462,10 +463,12 @@ results of groups of experiments together.  This appendix describes
 the programs used for all various tasks, and includes references to
 where the full source code can be found for the programs we developed.
 
-\subsection{Preparing a testbed}
+\subsection{Preparing a testbed and running an experiment}
 
 {\em The programs described here and other useful tools are in the experiment
-setup repository~\cite{exp:scripts} under the {\tt bin} directory.}
+setup repository~\cite{exp:scripts} under the {\tt bin} directory for
+the programs to run on the local system and the {\tt objects} directory
+for the programs to run on the testbed.}
 
 Given the number of servers, clients and routers (if appropriate to the
 experiment) we developed a simple program to generate action files
@@ -475,10 +478,10 @@ described in this report by providing appropriate options; for the
 networks shown as examples in the figures we just ran:
 
 \begin{verbatim}
-mknet S=3 L=8
-mknet S=3 R=1 L=8
-mknet S=3 R=2 L=2
-mknet S=3 R=3 L=1
+local$ mknet S=3 L=8
+local$ mknet S=3 R=1 L=8
+local$ mknet S=3 R=2 L=2
+local$ mknet S=3 R=3 L=1
 \end{verbatim}
 
 As can be seen, omitting ``R'' results in a single LAN network in which
@@ -504,29 +507,175 @@ this point, for example to run with 32, 64 and 512 megabytes on the
 first single LAN experiment defined above (``S3L8'')
 
 \begin{verbatim}
-setup-experiment 32,64,512 S3L8
+local$ setup-experiment 32,64,512 S3L8
 \end{verbatim}
 
-This sets up the ``director'' node.  To complete the setup, one needs to
-connect to it and then run a program there:
+This sets up the ``director'' node and copies the {\tt objects} directory
+of the repository to it.  To complete the setup, one needs to connect to
+it and then run a program there:
 
 \begin{verbatim}
-ssh-experiment S3L8 director0
-/tmp/experiment/setup-all
+local$ ssh-experiment S3L8 director0
+director0$ /tmp/experiment/setup-all
 \end{verbatim}
 
-The testbed is now ready to run the experiment as many times as one wants.
+The testbed is now ready to run the experiment by running a program on
+director0:
 
-\subsection{Running an experiment}
-\TODO{ssh-experiment, setup-all, run-experiment}
+\begin{verbatim}
+local$ ssh-experiment S3L8 director0
+director0$ /tmp/experiment/run-experiment
+\end{verbatim}
+
+If required, the ``{\tt run-experiment}'' program can run many times
+to obtain more data without additional setup overhead; no need to
+repeat any of the previous steps.
+
+Internally, the ``{\tt run-experiment}'' program calls other programs
+running on the director, but also on servers, routers and clients
+as necessary to implement the procedure described in
+sections~\ref{LAN:experiment} to~\ref{GEN:experiment}. These
+have names like ``{\tt start-tcp-server}'' or
+``{\tt start-multicast-router}'' to start wat is required for
+a particular experiment on a particular node (in this example,
+start the TCP experiment on a server, and start the multicast
+routing daemon on a router, respectively).  All these programs are
+found in the repository cited.
+
+One issue we found while developing programs to automate the experiment
+is that network interface names may be different when booting
+different testbeds; each node has two interfaces, a control
+interface used by the testbed administration, as well as to log
+in to it from outside the experiment, and a second interface
+connected as required by the experiment's network topology and
+used to transfer the data files during the experiment; for a router
+node, there are obviously more interfaces.  We did not have time
+to develop our own boot image to work around the problem that
+systemd's ``predictable'' interface names turn out to be nothing
+of the sort, so the ``setup-all'' script will additionally have
+to figure out what interface is going to be used for what, and
+configure them as required: this may be different for each node.
+It will also assign friendlier names to the interface which tell
+us what is used for what, as is important when looking at network
+usage data for routers.
 
 \subsubsection{Resource monitoring}
-\TODO{lwmon}
+{\em The program described here is in the lwmon repository~\cite{lwmon}.}
 
-\subsubsection{Update programs}
+There are many monitoring tools for Unix system, however in our experience
+they tend to use more resources than programs which do the actual work,
+or else they are designed to sample information only once a minute,
+which is not enough for this experiment.
+
+Because of experience using other monitoring tools and not finding
+one which we actually want to use on a live system, we have developed
+our own over the years, which we call ``lwmon'', for Light-Weight
+system MONitoring, which, as the name suggests, is very considerate
+in its use of resources and can safely run very frequently without
+impact on the system.  Also, after it completes its initialisation,
+it has constant memory usage, unlike other tools which can fail
+in the middle of processing when they try to allocate more memory
+on a busy system.  It can also report on its own resource usage,
+so one can confirm that it is, indeed, light-weight.
+
+Without going into complete details, each node sets up its own
+configuration for lwmon, which then monitors memory usage and
+system load every second, its own resource usage every 10
+seconds.  The appropriate program (update provider for servers,
+routing daemon for routers if requires by the experiment, and
+the program which gets the updates for clients) also runs as
+a child process of lwmon, so the latter can report on the resource
+used by this program.
+
+A lwmon configuration for a client looks like:
+
+\begin{verbatim}
+hostname client2
+
+load lavg 1
+memory memswap 1
+network if1 1 enp6s0
+self self 2
+
+program exp 5 /tmp/experiment/start-multicast-client enp6s0
+print /tmp/results/client2,multicast,random.64 overwrite binary
+\end{verbatim}
+
+This means that load average, memory/swap usage and network usage are
+sampled every second, lwmon's own resource usage every 2 seconds, will
+run the appropriate program for a particular experiment (in this case,
+update via multicast), and save the information into a file in a compact
+binary format. The second column of the lines specifying what to measure
+is the name used to report it.
+
+The program running does not depend on the scheduling strategy selected,
+as that is handled before: we do not want to measure the time it takes
+to sleep for a random duration, only the time it takes to download the
+update.  The file name for the results, on the other hand, contain the
+scheduling strategy (in this case, random) and the update size (64
+megabytes), as we need to keep things distinct.
+
+Another thing to note is that the ``network'' line asks to monitor
+the interface using its systemd name (enp6s0 in this example) because
+that's how it will be able to find it in the system, but reports it
+using the name ``if1'' as this is the interface name we have used
+in the action file and rspec.
+
+Configuration for a server is essentially identical, with ``client''
+replaced by ``server'', and for a router is very similar:
+
+\begin{verbatim}
+hostname router0
+
+load lavg 1
+memory memswap 1
+network if1 1 enp4s0
+network if2 1 enp6s0
+self self 2
+
+program exp 5 /tmp/experiment/start-multicast-router enp4s0
+print /tmp/results/router0,multicast,random.64 overwrite binary
+\end{verbatim}
+
+The network interface reported as ``if1'' has network traffic going
+to or from clients, and ``if2'' has traffic going to or from servers.
+
+Once the ``{\tt start-}\ldots'' program terminates, lwmon automatically
+reports on its resource usage and the wall clock time it has taken to run,
+then runs one more round of measurements and exits.  For clients, the
+program normally terminates when it has obtained the update successfully;
+for servers and routers the program terminates when the director signals
+the end of the experiment.
+
+The program which generates the lwmon configuration file and calls lwmon
+will wait for it to terminate, then copies the file it produced back
+to the director node. This allows the director to collect all the
+data about the experiment in one place.
+
+As mentioned, lwmon produces a file containing data in a packed binary
+format. To just look at the data, the tool has an option to read that
+binary file back in and produce a human-readable output:
+
+\begin{verbatim}
+$ lwmon -R /tmp/results/router0,multicast,random.64 -P -
+\end{verbatim}
+
+There is a separate tool which reads one or more data files and produces
+SQL statements which can be used to import it into a database, for example:
+
+\begin{verbatim}
+$ lwmon-to-sqlC [options] DATA_FILES | sqlite3 database.sqlite
+\end{verbatim}
+
+As described below in~\ref{importing}, for this experiment we have developed
+a tool which calls {\tt lwmon-to-sql} in the appropriate way to import
+experiment results in a format suitable for further analysis.
+
+\subsubsection{Programs implementing the update methods}
 \TODO{iotupd, iotup, \ldots}
 
 \subsection{Importing results in a database}
+\label{importing}
 \TODO{extract-data, import-into-sqlite}
 
 \subsection{Analysing results}
@@ -539,6 +688,11 @@ The testbed is now ready to run the experiment as many times as one wants.
 \bibitem{exp:scripts}
   C. Calvelli, E. Payne, B. Sheffield.
   {\em Fed4fire experiment setup scripts}.
+  git: TODO
+
+\bibitem{lwmon}
+  C. Calvelli.
+  {\em lwmon: A {\bf\em l}ight-{\bf\em w}eight system {\bf\em mon}itoring tool}.
   git: TODO
 
 \end{thebibliography}
