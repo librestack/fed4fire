@@ -15,7 +15,8 @@ my $addr6 = inet_ntop AF_INET6, $bin6 or die "$tx6: $!\n";
 # the address we looked up needs to be a prefix for a /56...
 $addr6 =~ /^([[:xdigit:]]{1,4}:[[:xdigit:]]{1,4}:[[:xdigit:]]{1,4}):([[:xdigit:]]{1,4})::$/
     && ((hex $2) & 0xff) == 0
-	or die "Found invalid address for $tx6: $addr6\n";
+	or "${addr6}0" =~ /^([[:xdigit:]]{1,4}:[[:xdigit:]]{1,4}:[[:xdigit:]]{1,4})::(0)$/
+	    or die "Found invalid address for $tx6: $addr6\n";
 my ($pr6, $base6) = ($1, hex $2);
 
 my %authority = (
