@@ -4,9 +4,11 @@
 
 \title{Comparing performance of IPv6 multicast and unicast for software updates}
 \author{Claudio Calvelli}
-\date{Draft 0.3 \today}
+\date{Draft 0.4 \today}
 
 \setlength{\unitlength}{0.01\linewidth}
+\def\topfaction{0.6}
+\def\bottomfraction{0.6}
 
 \newcommand{\TODO}[1]{\par\noindent%
 \hspace*{\fill}%
@@ -58,7 +60,8 @@ to scale.  Multicast allows application developers to add more
 functionality without significantly impacting the network.
 \end{quotation}
 
-There is a need for some experimental data to back these statements.  We concentrate of measuring the impact of {\it software
+There is a need for some experimental data to back these statements.
+We concentrate of measuring the impact of {\it software
 updates\/} on the network, because the proliferation of connected
 devices will make software updates a very important target for
 efficient use of the network, and because software updates are
@@ -125,15 +128,15 @@ full sources of all these programs.
 \section{The ``LAN'' experiment}
 \label{LAN:experiment}
 
-A number of servers (denoted by $\cal S$) provide software updates for
-${\cal C}$ local clients; these servers and client all share a LAN
+A number of clients (denoted by ${\cal C}$) request software updates
+from a single server; the server and all clients share a LAN
 so that updates have the shortest possible netowrk path.  This
 experiment will allow us to compare multicast and unicast in the
 simplest possible setting, and one which is possible on any existing
 local network in which IPv6 is enabled, and could represent for example
 distributing updates within an organisation.
 
-The third experimental parameters indicates the size of the software updates
+A second experimental parameters indicates the size of the software updates
 as the number ${\cal N}$ of bytes contained in it.  In the real world,
 clients may be more or less up-to-date so that each one may request a
 subset of all updates available; for this experiment we assume that
@@ -141,12 +144,12 @@ all clients have all previous updates and are just requesting the latest
 one; a future experiment may consider some more complex ``real life''
 scenarios.
 
-Figure~\pref{s2:c8}
+Figure~\pref{s1:c8}
 \begin{figure}[bp]
 \begin{center}
 \begin{picture}(90,29)
-\multiput(25,22)(40,0){2}{\makebox(0,0){\rm\bf S}}
-\multiput(25,16)(40,0){2}{\line(0,1){3}}
+\put(45,22){\makebox(0,0){\rm\bf S}}
+\put(45,16){\line(0,1){3}}
 \put(10,16){\line(1,0){70}}
 \multiput(10,13)(10,0){8}{\line(0,1){3}}
 \multiput(10,10)(10,0){8}{\makebox(0,0){\rm\bf C}}
@@ -157,56 +160,59 @@ Figure~\pref{s2:c8}
 \hspace*{\fill}%
 \mbox{{\bf C} = client}%
 \hspace*{\fill}
-\caption{Network with 2 servers and 8 clients on a single LAN}
-\label{s2:c8}
+\caption{Network with8 clients on a single LAN}
+\label{s1:c8}
 \end{figure}
-shows the network topology with ${\cal S} = 3$ and ${\cal C} = 8$, so
-that there are 3 servers sending data to 8 clients on a single LAN.
+shows the network topology with ${\cal C} = 8$, i.e.\ there is a
+server sending data to 8 clients on a single LAN.
 
 \subsection{Experiment procedure}
-For a specified network topology (i.e.\ values for ${\cal S}$ and ${\cal C}$),
-and a list of update sizes (several distinct values for ${\cal N}$),
-we implement that network on an experiment testbed, then run a series of
-tests on it using all possible combinations of update size, update method
-and scheduling strategy.  For organisational reasons, the testbed actually
-has ${\cal S} + 1$ servers, the extra server does not take part in the
-update but directs the operations and collects results (we call this extra
-server the ``director'').
+For a specified network topology (i.e.\ value for ${\cal C}$), and a list
+of update sizes (several distinct values for ${\cal N}$), we implement
+that network on an experiment testbed, then run a series of tests on
+it using all possible combinations of update size, update method and
+scheduling strategy.  For organisational reasons, the testbed actually
+has 2 servers, the extra server does not take part in the update but
+directs the operations and collects results (we call this extra server
+the ``director'').
 
 Each test starts with the director generating a file of the specified size
-filled with random data; this is copied to all servers, so they all provide
-an identical update.  Then the director waits 60 seconds to make sure that
-the 1-minute load average of each node in the system is down to its
-baseline value; when we ran experiments without this wait, we had each
-run affecting the measurements of the next one, so it did not produce
-useful results.
+filled with random data; this is copied to the server (a future experiment
+will use multiple servers, so generating the file on the director and
+copying it to all servers will make sure all send the same data, and
+in preparation for that we have this extra file copy instead of generating
+a random file directly on the server).
 
-After the 60 seconds wait, the director asks all server nodes to start:
-this means that two daemons start on each server, a resource monitoring
-tool and the update provider appropriate for the selected update method.
-These update providers are described below.
+After generating and copying the file the director waits 60 seconds to
+make sure that the 1-minute load average of each node in the system is
+down to its baseline value; when we ran experiments without this wait,
+we had each run affecting the measurements of the next one, so it did
+not produce useful results.
 
-After all servers have started, the director asks all client nodes to
+After the 60 seconds wait, the director asks the server node to start:
+this means starting two daemons, a resource monitoring tool and the
+update provider appropriate for the selected update method.  These
+update providers are described below.
+
+After the server has started, the director asks all client nodes to
 start as well: each client will first wait a short time depending on
 the scheduling strategy: a fixed 4 seconds for ``immediate'' or a
 random duration between 4 and 36 seconds for ``random''; the minimum
 wait of 4 seconds is to make sure the rest of the system is fully
 ready to run. After this delay, each client starts a resource monitoring
-daemon identical to the one running on each server, and a client
+daemon identical to the one running on the server, and a client
 program to obtain the update.
 
 When a client has successfully obtained the update, the monitoring
 daemon will record the time it has taken, finish another round of
 resource measurements, and sends all the data back to the director.
 
-The director waits for all clients to have sent the data, then asks
-the servers to stop, at which point the servers will also send all
-their resource measurements back to the director: all these measurements
-are collected into a single ``tar'' archive and copied to an external
-server for later analysis.
+The director waits for all clients to have sent the data, then asks the
+server to stop, which will also trigger a copy of the server's resource
+measurements back to the director: all the measurements from all nodes
+are collected into a single ``tar'' archive and saved for later analysis.
 
-The resource monitoring daemon records the following data every
-second:
+The resource monitoring daemon records the following data every second:
 
 \begin{itemize}
 \item 1-minute load average as provided by the system
@@ -216,7 +222,7 @@ transfer the update data
 \end{itemize}
 
 Additionally, at the end of the experiment it also records the following
-data about the update program itself (update provider for servers, or
+data about the update program itself (update provider for server, or
 the program obtaining the update for clients):
 
 \begin{itemize}
@@ -250,20 +256,17 @@ the checksum is valid, then leave the group and stop.
 \section{The ``Two LANs'' experiment}
 \label{TWOLAN:experiment}
 
-Similar to the previous experiment, but we investigate the effect of
-a multicast router in the network: there are two LANs connected together
-by a single router; all the servers are on the first LAN, and all the
-clients are on the second LAN.  Like the previous experiments, the
-parameters are the number of servers $\cal S$), the number of clients
-${\cal C}$ clients, and the update size in bytes ${\cal N}$.
+Similar to the previous experiment, but we investigate the effect of a
+multicast router in the network: there are two LANs connected together
+by a single router; the server is on the first LAN, and all the clients
+are on the second LAN.  Like the previous experiments, the parameters are
+the number of clients ${\cal C}$, and the update size in bytes ${\cal N}$.
 
-Figure~\pref{s3:r1:l8}
+Figure~\pref{s1:r1:c8}
 \begin{figure}[bpt]
 \begin{center}
-\begin{picture}(90,41)
-\multiput(20,34)(25,0){3}{\makebox(0,0){\rm\bf S}}
-\multiput(20,28)(25,0){3}{\line(0,1){3}}
-\put(20,28){\line(1,0){50}}
+\begin{picture}(90,38)
+\put(45,31){\makebox(0,0){\rm\bf S}}
 \put(45,25){\line(0,1){3}}
 \put(45,22){\makebox(0,0){\rm\bf R}}
 \put(45,16){\line(0,1){3}}
@@ -279,20 +282,21 @@ Figure~\pref{s3:r1:l8}
 \hspace*{\fill}%
 \mbox{{\bf C} = client}%
 \hspace*{\fill}
-\caption{Two LANs network, with 3 servers and 8 clients}
-\label{s3:r1:l8}
+\caption{Two LANs network with 8 clients}
+\label{s1:r1:c8}
 \end{figure}
-shows the network topology with ${\cal S} = 3$ and ${\cal C} = 8$,
-so that there are 3 servers sending data to 8 clients.
+shows the network topology with ${\cal C} = 8$, i.e.\ the same setting
+as the previous example (figure~\pref{s1:c8}) but with the clients
+separated from the server by a single router.
 
 The experimental procedure is very similar to the previous experiment,
 we only describe the differences between them here.
 
-After copying the update data to all servers and waiting 60 seconds, the
+After copying the update data to the server and waiting 60 seconds, the
 director will ask the router to start its own resource monitoring, and,
 for the multicast experiment, to start a multicast routing daemon.
 
-The servers wait 2 seconds before start, to give the router time to be
+The server wait 2 seconds before starting, to give the router time to be
 fully set up.
 
 After that, the experiment proceeds identically with the director starting
@@ -301,30 +305,19 @@ all clients and waiting for results.
 \section{The ``Generic'' experiment}
 \label{GEN:experiment}
 
-A number of servers (denoted by $\cal S$) provide software updates for
-${\cal C} = {\cal L} * 2^{{\cal R} - 1}$ clients; there are ${\cal R}$ routers
-in the network path between each server and each client, and the clients
-are connected to a LAN, at ${\cal L}$ clients on each local network.
-For this experiments, all the servers share a LAN.
-This is of course a simplified view of a real system but allows to
-compare the impact of various methods of software updates in a variety
-of circumstances.
+An extension of the previous (``Two LANs'') experiment includes a longer
+network path between clients and server; for simplicity, and to generate
+the networks automatically, we specify a number of clients per LAN
+(denoted by ${\cal L}$) and the length of the network path indicated by
+the number of routers in the path, ${\cal R}$. The total number of clients
+will be ${\cal C} = {\cal L} * 2^{{\cal R} - 1}$, and the routers form a
+tree structure.
 
-The last experimental parameters indicates the size of the software updates
-as the number ${\cal N}$ of bytes contained in it.  In the real world,
-clients may be more or less up-to-date so that each one may request a
-subset of all updates available; for this experiment we assume that
-all clients have all previous updates and are just requesting the latest
-one; a future experiment may consider some more complex ``real life''
-scenarios.
-
-Figure~\pref{s3:r3:l2}
+A couple of exampels will make this clearer: figure~\pref{s1:r3:l2}
 \begin{figure}[bp]
 \begin{center}
-\begin{picture}(90,65)
-\multiput(20,58)(25,0){3}{\makebox(0,0){\rm\bf S}}
-\multiput(20,52)(25,0){3}{\line(0,1){3}}
-\put(20,52){\line(1,0){50}}
+\begin{picture}(90,62)
+\put(45,55){\makebox(0,0){\rm\bf S}}
 \put(45,49){\line(0,1){3}}
 \put(45,46){\makebox(0,0){\rm\bf R}}
 \put(45,40){\line(0,1){3}}
@@ -348,19 +341,17 @@ Figure~\pref{s3:r3:l2}
 \hspace*{\fill}%
 \mbox{{\bf C} = client}%
 \hspace*{\fill}
-\caption{Network with 3 servers and 8 clients, 2 clients per LAN}
-\label{s3:r3:l2}
+\caption{Network with 8 clients, 2 clients per LAN}
+\label{s1:r3:l2}
 \end{figure}
-shows the network topology with ${\cal S} = 3$, ${\cal R} = 3$ and
-${\cal L} = 2$, so that there are 3 servers sending data to 8 clients
-organised in 4 separate LANs;
-for comparison, figure~\pref{s3:r4:l1}
+shows the network topology with ${\cal R} = 3$ and ${\cal L} = 2$,
+so that the 8 clients are organised in 4 separate LANs, with
+7 routers forming a tree structure with the server connected to
+the root of the tree. For comparison, figure~\pref{s1:r4:l1}
 \begin{figure}[bp]
 \begin{center}
-\begin{picture}(90,74)
-\multiput(20,67)(25,0){3}{\makebox(0,0){\rm\bf S}}
-\multiput(20,61)(25,0){3}{\line(0,1){3}}
-\put(20,61){\line(1,0){50}}
+\begin{picture}(90,71)
+\put(45,64){\makebox(0,0){\rm\bf S}}
 \put(45,58){\line(0,1){3}}
 \put(45,55){\makebox(0,0){\rm\bf R}}
 \put(45,49){\line(0,1){3}}
@@ -386,47 +377,32 @@ for comparison, figure~\pref{s3:r4:l1}
 \hspace*{\fill}%
 \mbox{{\bf C} = client}%
 \hspace*{\fill}
-\caption{Network with 3 servers and 8 clients, 1 client per LAN}
-\label{s3:r4:l1}
+\caption{Network with 8 clients, 1 client per LAN}
+\label{s1:r4:l1}
 \end{figure}
 shows the same number of clients arranged on 8 separate LANs
 (${\cal L} = 1$) so that there is an extra network hop between
 clients and servers (${\cal R} = 4$).
 
+This is still a simplified view of a real system, but allows to
+extend the previous experiments to different circumstances.  A
+future experiment might consider different networks.
+
+The last experimental parameters indicates the size of the software updates
+as the number ${\cal N}$ of bytes contained in it.  In the real world,
+clients may be more or less up-to-date so that each one may request a
+subset of all updates available; for this experiment we assume that
+all clients have all previous updates and are just requesting the latest
+one; a future experiment may consider some more complex ``real life''
+scenarios.
+
 Each experiment run will select a network topology (i.e.\ values
-for ${\cal S}$, ${\cal R}$ and ${\cal L}$) and an update size
-${\cal N}$, then run three times with the three update mechanisms.
-
-We run each experiment until all clients have succeeded obtaining
-a copy of the software update. During this time, various resource
-usages are monitored to show the impact of an update mechanism on
-servers, routers, network and clients. Additionally, the time
-each client takes to obtain the software update is measured, reporting
-the minimum, average and maximum time experienced by the clients.
-
-For the ``unicast'' experiment, all routers are just normal
-unicast routers able to send packets from the clients to
-the server and back.  Each client selects a server at random,
-connects to that server, downloads the file, calculates a
-checksum to verify file integrity, and repeat if there
-is a problem.
-
-For the ``multicast'' experiment, all routers support
-multicast routing so when a client joins a multicast group
-the routers will make sure packets get from the servers to
-that client.  Each server sends a copy of the file on a
-multicast group, then repeat until all clients have received
-it (this is known to the server because everybody will have
-left the multicast group at this point).  Each client will
-join the group, wait until it has all the required data and
-the checksum is valid, then leave the group and stop.
-
-The ``hybrid'' experiment simulates the transitional technology
-offered by librecast. Servers and clients will behave exactly
-in the same way as the ``multicast'' experiment; however the
-routers directly connected to servers and the ones directly
-connected to clients will implement the transitional technology,
-while the intermediate routers do not support multicast routing.
+for ${\cal R}$ and ${\cal L}$) and a list of update sizes
+${\cal N}$, set up the corresponding network on the experiment
+testbed, and proceed in the same way as the previous, ``Two LANs'',
+experiment.  While there are more routers in the network, all these
+routers do exactly the same as the single router in the previous
+experiment, so there is little difference in the actual running.
 
 \section{Experiment results}
 \label{results}
@@ -446,6 +422,23 @@ in which every client requests a different subset of all available
 updates, due to its own unique update history; while we expect that
 multicast will scale really well to this situation, we haven't
 ran an experiment to support this.
+
+All the experiments we ran included a single server.  The main point
+of this experiment was to show that a single server is sufficient to
+provide updates for a large number of clients using multicast, while
+unicast will require multiple servers in this case.  However, there
+are reasons other than server and network load why one would want
+multiple servers, for example reliability: if the single, extremely
+efficient, server has a fault, the updates stop; ideally, these
+multiple servers will be reachable by completely different network
+paths as well.  We think that multicast will help with that too,
+for example multiple servers can each send data at a fraction of the
+bandwidth, and when all works clients will get the advantage of the
+combined output from all servers, with a network or server failure
+would automatically result in a corresponding reduction of speed, and
+the subsequent recovery or replacement of the faulty parts would
+automatically result in the system returning to full speed.  This
+claim, of course, needs a separate experiment to justify.
 
 Another type of network activity which can benefit from multicast is
 live streaming, where the server will only need to send the stream once;
@@ -491,10 +484,10 @@ described in this report by providing appropriate options; for the
 networks shown as examples in the figures we just ran:
 
 \begin{verbatim}
-local$ mknet S=3 L=8
-local$ mknet S=3 R=1 L=8
-local$ mknet S=3 R=2 L=2
-local$ mknet S=3 R=3 L=1
+local$ mknet L=8
+local$ mknet R=1 L=8
+local$ mknet R=2 L=2
+local$ mknet R=3 L=1
 \end{verbatim}
 
 As can be seen, omitting ``R'' results in a single LAN network in which
@@ -502,10 +495,12 @@ the number of clients is specified by ``L'' for consistency with the
 other networks (where it indicates the number of clients on each client
 LAN).
 
-By default, the program generates an experiment name indicating the parameters
-provided: for the four examples above this would be: ``S3L8'', ``S3R1L8'',
-``S3R2L2'' and ``S3R3L1''; the data generated will be stored in a
-directory inside {\tt/tmp} named after the experiment.
+By default, the program generates an experiment name indicating the
+parameters provided: for the four examples above this would be: ``S1L8'',
+``S1R1L8'', ``S1R2L2'' and ``S1R3L1''; the data generated will be stored
+in a directory inside {\tt/tmp} named after the experiment (the name
+of the experiment starts with ``S1'' to indicate the number of servers,
+in preparation for a future multi-server experiment).
 
 One of the files generated, {\tt action.yaml}, is suitable for using as
 an action file with the ``jfed-cli'' tool and will provision the testbed;
@@ -635,7 +630,7 @@ using the name ``if1'' as this is the interface name we have used
 in the action file and rspec.
 
 Configuration for a server is essentially identical, with ``client''
-replaced by ``server'', and for a router is very similar:
+replaced by ``server'', and for a router it is very similar:
 
 \begin{verbatim}
 hostname router0
@@ -677,7 +672,7 @@ There is a separate tool which reads one or more data files and produces
 SQL statements which can be used to import it into a database, for example:
 
 \begin{verbatim}
-$ lwmon-to-sqlC [options] DATA_FILES | sqlite3 database.sqlite
+$ lwmon-to-sql [options] DATA_FILES | sqlite3 database.sqlite
 \end{verbatim}
 
 As described below in~\ref{importing}, for this experiment we have developed

@@ -10,20 +10,23 @@ my $pr4 = '192.168';
 my $pr6 = '2a03:4980:123';
 my $base6 = 0x9a00;
 
-my ($S, $R, $L, $RSPEC, $YAML, $SCRIPT, $PWD, %K, $EXP);
+my ($R, $L, $RSPEC, $YAML, $SCRIPT, $PWD, %K, $EXP);
+my $S = 1;
+my $TIME = 120;
 my $DIR = '/tmp';
 -f "$Bin/../objects/id_rsa.pub" and unshift @ARGV, "K=$Bin/../objects/id_rsa.pub";
 while (@ARGV) {
     my $A = shift @ARGV;
-    $A =~ /^S=(.*)$/i and $S = $1, next;
-    $A =~ /^R=(.*)$/i and $R = $1, next;
-    $A =~ /^L=(.*)$/i and $L = $1, next;
-    $A =~ /^RSPEC=(.*)$/i and $RSPEC = $1, next;
-    $A =~ /^YAML=(.*)$/i and $YAML = $1, next;
-    $A =~ /^SCRIPT=(.*)$/i and $SCRIPT = $1, next;
-    $A =~ /^PWD=(.*)$/i and $PWD = $1, next;
-    $A =~ /^EXP=(.*)$/i and $EXP = $1, next;
-    $A =~ /^DIR=(.*)$/i and $DIR = $1, next;
+    $A =~ /^S=(\d+)$/i and $S = $1, next;
+    $A =~ /^R=(\d+)$/i and $R = $1, next;
+    $A =~ /^L=(\d+)$/i and $L = $1, next;
+    $A =~ /^TIME=(\d+)$/i and $TIME = $1, next;
+    $A =~ /^RSPEC=(.+)$/i and $RSPEC = $1, next;
+    $A =~ /^YAML=(.+)$/i and $YAML = $1, next;
+    $A =~ /^SCRIPT=(.+)$/i and $SCRIPT = $1, next;
+    $A =~ /^PWD=(.+)$/i and $PWD = $1, next;
+    $A =~ /^EXP=(.+)$/i and $EXP = $1, next;
+    $A =~ /^DIR=(.+)$/i and $DIR = $1, next;
     $A =~ /^K(\w*)=(.*)$/ or die "Unknown option $A\n";
     my ($user, $key) = ($1, $2);
     open(KF, '<', $key) or die "K=$key: $!\n";
@@ -33,7 +36,7 @@ while (@ARGV) {
     chomp $K;
     push @{$K{$user}}, $K;
 }
-defined $S && defined $L or die "Missing S or L\n";
+defined $L or die "Missing clients per LAN, L\n";
 $S < 1 and die "S must be at least 1\n";
 $L < 1 and die "L must be at least 1\n";
 defined $R && $R < 1 and die "R must be at least 1\n";
@@ -388,7 +391,7 @@ experiment:
 $r
     source: PROVIDE_CONTENT
   slice:
-    expireTimeMin: 120
+    expireTimeMin: $TIME
     failIfNoProject: true
     sliceName: $EXP
   waitForReady:

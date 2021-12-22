@@ -2,27 +2,35 @@ Preparation:
 
 Put the login.pem file in ~/data (this location is currently hardcoded)
 
-To create the "LAN" experiment with $S servers and $C clients:
+To create the "LAN" experiment with $C clients:
 
-S=...
 C=...
 
-exp="S${S}L$C"
+exp="exp.1lan.$C"
 mkdir /tmp/$exp
-./bin/mknet S=$S L=$C EXP=$exp [other options, see below]
+./bin/mknet L=$C EXP=$exp [other options, see below]
 
-To create the "WAN" experiment with $S servers, $L clients per LAN and
-$R router levels:
+To create the "Two LANs" experiment with $C clients:
 
-S=...
+C=...
+
+exp="exp.2lan.$C"
+mkdir /tmp/$exp
+./bin/mknet L=$C R=1 EXP=$exp [other options, see below]
+
+To create the "Generic experiment with $L clients per LAN and $R router levels
+($R >= 2):
+
 L=...
 R=...
 
-exp="S${S}R${R}L$L"
+exp="exp.generic.$R.$L"
 mkdir /tmp/$exp
-./bin/mknet S=$S L=$L R=$R EXP=$exp [other options, see below]
+./bin/mknet L=$L R=$R EXP=$exp [other options, see below]
 
 other options:
+    TIME=180                 time in minutes before the testbed expires,
+                             default is 120 (jfed's default)
     PWD=~/data/login.pwd     file containing password for login.pem
     K=~/.ssh/id_rsa.pub      add another allowed ssh key to the testbed
                              (the one from login.pem and the one in the
