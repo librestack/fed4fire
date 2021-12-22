@@ -10,10 +10,22 @@ my $pr4 = '192.168';
 my $pr6 = '2a03:4980:123';
 my $base6 = 0x9a00;
 
+my %authority = (
+    vwall1 => [qw(
+	urn:publicid:IDN+wall1.ilabt.iminds.be+authority+cm
+	urn:publicid:IDN+wall1.ilabt.iminds.be+image+emulab-ops:UBUNTU20-64-STD
+    )],
+    vwall2 => [qw(
+	urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm
+	urn:publicid:IDN+wall2.ilabt.iminds.be+image+emulab-ops:UBUNTU20-64-STD
+    )],
+);
+
 my ($R, $L, $RSPEC, $YAML, $SCRIPT, $PWD, %K, $EXP);
 my $S = 1;
 my $TIME = 120;
 my $DIR = '/tmp';
+my $AUTH = 'vwall2';
 -f "$Bin/../objects/id_rsa.pub" and unshift @ARGV, "K=$Bin/../objects/id_rsa.pub";
 while (@ARGV) {
     my $A = shift @ARGV;
@@ -27,19 +39,29 @@ while (@ARGV) {
     $A =~ /^PWD=(.+)$/i and $PWD = $1, next;
     $A =~ /^EXP=(.+)$/i and $EXP = $1, next;
     $A =~ /^DIR=(.+)$/i and $DIR = $1, next;
-    $A =~ /^K(\w*)=(.*)$/ or die "Unknown option $A\n";
-    my ($user, $key) = ($1, $2);
-    open(KF, '<', $key) or die "K=$key: $!\n";
-    my $K = <KF>;
-    close KF;
-    defined $K or die "$A: empty key\n";
-    chomp $K;
-    push @{$K{$user}}, $K;
+    if ($A =~ /^K(\w*)=(.*)$/) {
+	my ($user, $key) = ($1, $2);
+	open(KF, '<', $key) or die "K=$key: $!\n";
+	my $K = <KF>;
+	close KF;
+	defined $K or die "$A: empty key\n";
+	chomp $K;
+	push @{$K{$user}}, $K;
+	next;
+    }
+    if ($A =~ /^AUTH=(\w+)$/i) {
+	$AUTH = $1;
+	exists $authority{$AUTH} or die "Unknown authority $AUTH\n";
+	next;
+    }
+    die "Unknown option $A\n";
 }
 defined $L or die "Missing clients per LAN, L\n";
 $S < 1 and die "S must be at least 1\n";
 $L < 1 and die "L must be at least 1\n";
 defined $R && $R < 1 and die "R must be at least 1\n";
+
+my ($nodeauth, $image) = @{$authority{$AUTH}};
 
 if (! defined $EXP) {
     $EXP = "S$S";
@@ -140,9 +162,9 @@ EOF
 	for (my $cn = 0; $cn < $L; $cn++) {
 	    # add client
 	    $rspec .= <<"EOF";
-  <node client_id="client$clientno" exclusive="true" component_manager_id="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm">
+  <node client_id="client$clientno" exclusive="true" component_manager_id="$nodeauth">
     <sliver_type name="raw-pc">
-      <disk_image name="urn:publicid:IDN+wall2.ilabt.iminds.be+image+emulab-ops:UBUNTU20-64-STD"/>
+      <disk_image name="$image"/>
     </sliver_type>
     <jfed:ansible_group name="client"/>
     <location xmlns="http://jfed.iminds.be/rspec/ext/jfed/1" x="$posx" y="$posy"/>
@@ -171,9 +193,9 @@ EOF
 	my $py = $posy - $dy;
 	push @routers, [$routerno, $rx, $py, $routerlan];
 	$rspec .= <<"EOF";
-  <node client_id="router$routerno" exclusive="true" component_manager_id="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm">
+  <node client_id="router$routerno" exclusive="true" component_manager_id="$nodeauth">
     <sliver_type name="raw-pc">
-      <disk_image name="urn:publicid:IDN+wall2.ilabt.iminds.be+image+emulab-ops:UBUNTU20-64-STD"/>
+      <disk_image name="$image"/>
     </sliver_type>
     <location xmlns="http://jfed.iminds.be/rspec/ext/jfed/1" x="$rx" y="$py"/>
     <interface client_id="router$routerno:if0">
@@ -190,7 +212,7 @@ EOF
 	# add links client <-> router
 	$rspec .= <<"EOF";
   <link client_id="link$linkno">
-    <component_manager name="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm"/>
+    <component_manager name="$nodeauth"/>
 EOF
 	for my $c (@clients) {
 	    $rspec .= <<"EOF";
@@ -230,9 +252,9 @@ EOF
 			      [ $routerlan, $l1, 1 ];
 		push @routers, [$routerno, $rx, $ry, $routerlan];
 		$rspec .= <<"EOF";
-  <node client_id="router$routerno" exclusive="true" component_manager_id="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm">
+  <node client_id="router$routerno" exclusive="true" component_manager_id="$nodeauth">
     <sliver_type name="raw-pc">
-      <disk_image name="urn:publicid:IDN+wall2.ilabt.iminds.be+image+emulab-ops:UBUNTU20-64-STD"/>
+      <disk_image name="$image"/>
     </sliver_type>
     <location xmlns="http://jfed.iminds.be/rspec/ext/jfed/1" x="$rx" y="$ry"/>
     <interface client_id="router$routerno:if0">
@@ -246,7 +268,7 @@ EOF
     </interface>
   </node>
   <link client_id="link$linkno">
-    <component_manager name="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm"/>
+    <component_manager name="$nodeauth"/>
     <interface_ref client_id="router$r1:if2"/>
     <interface_ref client_id="router$r2:if2"/>
     <interface_ref client_id="router$routerno:if1"/>
@@ -274,9 +296,9 @@ EOF
     my $serverno = 0;
     for (my $sn = 0; $sn < $S; $sn++) {
 	$rspec .= <<"EOF";
-  <node client_id="server$serverno" exclusive="true" component_manager_id="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm">
+  <node client_id="server$serverno" exclusive="true" component_manager_id="$nodeauth">
     <sliver_type name="raw-pc">
-      <disk_image name="urn:publicid:IDN+wall2.ilabt.iminds.be+image+emulab-ops:UBUNTU20-64-STD"/>
+      <disk_image name="$image"/>
     </sliver_type>
     <jfed:ansible_group name="server"/>
     <location xmlns="http://jfed.iminds.be/rspec/ext/jfed/1" x="$posx" y="$posy"/>
@@ -298,9 +320,9 @@ EOF
     $serverip = 2;
     push @nodes, [ 'director', 0, $serverlan, $serverip ];
     $rspec .= <<"EOF";
-  <node client_id="director0" exclusive="true" component_manager_id="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm">
+  <node client_id="director0" exclusive="true" component_manager_id="$nodeauth">
     <sliver_type name="raw-pc">
-      <disk_image name="urn:publicid:IDN+wall2.ilabt.iminds.be+image+emulab-ops:UBUNTU20-64-STD"/>
+      <disk_image name="$image"/>
     </sliver_type>
     <jfed:ansible_group name="director"/>
     <location xmlns="http://jfed.iminds.be/rspec/ext/jfed/1" x="$posx" y="$posy"/>
@@ -318,7 +340,7 @@ EOF
     # link servers with top level router or client LAN, as appropriate
     $rspec .= <<"EOF";
   <link client_id="link$linkno">
-    <component_manager name="urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm"/>
+    <component_manager name="$nodeauth"/>
 EOF
     for my $s (@clients, @servers) {
 	$rspec .= <<"EOF";
