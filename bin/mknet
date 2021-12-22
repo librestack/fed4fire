@@ -8,16 +8,7 @@ use Socket6;
 $| = 1;
 
 my $pr4 = '192.168';
-my $tx6 = 'f4flan.w42.org';
-
-my $bin6 = gethostbyname2 $tx6, AF_INET6 or die "gethostbyname2($tx6): $!\n";
-my $addr6 = inet_ntop AF_INET6, $bin6 or die "$tx6: $!\n";
-# the address we looked up needs to be a prefix for a /56...
-$addr6 =~ /^([[:xdigit:]]{1,4}:[[:xdigit:]]{1,4}:[[:xdigit:]]{1,4}):([[:xdigit:]]{1,4})::$/
-    && ((hex $2) & 0xff) == 0
-	or "${addr6}0" =~ /^([[:xdigit:]]{1,4}:[[:xdigit:]]{1,4}:[[:xdigit:]]{1,4})::(0)$/
-	    or die "Found invalid address for $tx6: $addr6\n";
-my ($pr6, $base6) = ($1, hex $2);
+my $pr6 = sprintf 'fd%02x:%x:%x', rand(256), rand(65536), rand(65536);
 
 my %authority = (
     vwall1 => [qw(
@@ -489,7 +480,7 @@ sub create_script {
 	    $script .= sprintf "node %s %d if%d %s.%d.%d %s:%x::%x\n",
 			       $type, $number, $i,
 			       $pr4, $lan, $addr,
-			       $pr6, $lan + $base6, $addr;
+			       $pr6, $lan, $addr;
 	}
 	# static routes
 	for (my $p = 0; $p < @ips; $p += 2) {
@@ -502,8 +493,7 @@ sub create_script {
 		$script .= sprintf "rte4 %s %d %s.%d.0/24 %s.%d.%d\n",
 				   $type, $number, $pr4, $rt, $pr4, $rl, $ra;
 		$script .= sprintf "rte6 %s %d %s:%x::/64 %s:%x::%x\n",
-				   $type, $number, $pr6, $rt + $base6,
-						   $pr6, $rl + $base6, $ra;
+				   $type, $number, $pr6, $rt, $pr6, $rl, $ra;
 	    }
 	}
     }
