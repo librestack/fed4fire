@@ -3,12 +3,20 @@
 use strict;
 use POSIX 'strftime';
 use FindBin '$Bin';
+use Socket6;
 
 $| = 1;
 
 my $pr4 = '192.168';
-my $pr6 = '2a03:4980:123';
-my $base6 = 0x9a00;
+my $tx6 = 'f4flan.w42.org';
+
+my $bin6 = gethostbyname2 $tx6, AF_INET6 or die "gethostbyname2($tx6): $!\n";
+my $addr6 = inet_ntop AF_INET6, $bin6 or die "$tx6: $!\n";
+# the address we looked up needs to be a prefix for a /56...
+$addr6 =~ /^([[:xdigit:]]{1,4}:[[:xdigit:]]{1,4}:[[:xdigit:]]{1,4}):([[:xdigit:]]{1,4})::$/
+    && ((hex $2) & 0xff) == 0
+	or die "Found invalid address for $tx6: $addr6\n";
+my ($pr6, $base6) = ($1, hex $2);
 
 my %authority = (
     vwall1 => [qw(
