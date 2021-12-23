@@ -21,20 +21,36 @@ my %authority = (
     )],
 );
 
-my ($R, $L, $RSPEC, $YAML, $SCRIPT, $PWD, %K, $EXP);
+my ($R, $L, $RSPEC, $RUNFILE, $RENEWFILE, $DELETEFILE, $SCRIPT, $PWD, %K, $EXP);
 my $S = 1;
 my $TIME = 120;
 my $DIR = '/tmp';
 my $AUTH = 'vwall2';
--f "$Bin/../objects/id_rsa.pub" and unshift @ARGV, "K=$Bin/../objects/id_rsa.pub";
-while (@ARGV) {
-    my $A = shift @ARGV;
+my @config;
+-f "$Bin/../objects/id_rsa.pub" and push @config, "K=$Bin/../objects/id_rsa.pub";
+
+if (open(CONFIG, '<', "$ENV{HOME}/.config/librecast/mknet")) {
+    while (<CONFIG>) {
+	chomp;
+	s/^\s+//;
+	/^$/ || /^#/ and next;
+	s/\s+$//;
+	s/=~/=$ENV{HOME}/;
+	push @config, $_;
+    }
+}
+push @config, @ARGV;
+
+while (@config) {
+    my $A = shift @config;
     $A =~ /^S=(\d+)$/i and $S = $1, next;
     $A =~ /^R=(\d+)$/i and $R = $1, next;
     $A =~ /^L=(\d+)$/i and $L = $1, next;
     $A =~ /^TIME=(\d+)$/i and $TIME = $1, next;
     $A =~ /^RSPEC=(.+)$/i and $RSPEC = $1, next;
-    $A =~ /^YAML=(.+)$/i and $YAML = $1, next;
+    $A =~ /^RUNFILE=(.+)$/i and $RUNFILE = $1, next;
+    $A =~ /^DELETEFILE=(.+)$/i and $DELETEFILE = $1, next;
+    $A =~ /^RENEWFILE=(.+)$/i and $RENEWFILE = $1, next;
     $A =~ /^SCRIPT=(.+)$/i and $SCRIPT = $1, next;
     $A =~ /^PWD=(.+)$/i and $PWD = $1, next;
     $A =~ /^EXP=(.+)$/i and $EXP = $1, next;
@@ -71,7 +87,9 @@ if (! defined $EXP) {
 
 -d "$DIR/$EXP" or mkdir "$DIR/$EXP" || die "$DIR/$EXP: $!\n";
 defined $RSPEC or $RSPEC = "$DIR/$EXP/action.rspec";
-defined $YAML or $YAML = "$DIR/$EXP/action.yaml";
+defined $RUNFILE or $RUNFILE = "$DIR/$EXP/action.yaml";
+defined $DELETEFILE or $DELETEFILE = "$DIR/$EXP/delete.yaml";
+defined $RENEWFILE or $RENEWFILE = "$DIR/$EXP/renew.yaml";
 defined $SCRIPT or $SCRIPT = "$DIR/$EXP/action.script";
 
 my $nLAN = defined $R ? (2 ** ($R - 1)) : 1;
@@ -88,7 +106,7 @@ printf "Clente per LAN (L): %8d\n", $L;
 printf "Total clients (C):  %8d\n", $C;
 print "\n";
 
-my ($rspec, $yaml, $script, @nodes, @routes);
+my ($rspec, $runfile, $deletefile, $renewfile, $script, @nodes, @routes, $user);
 create_rspec();
 if (defined $RSPEC) {
     print "Creating rspec ($RSPEC)... ";
@@ -97,12 +115,28 @@ if (defined $RSPEC) {
     close RSPEC or die "$RSPEC: $!\n";
     print "OK\n";
 }
-if (defined $YAML) {
-    print "Creating yaml ($YAML)... ";
-    create_yaml();
-    open(YAML, '>', $YAML) or die "$YAML: $!\n";
-    print YAML $yaml or die "$YAML: $!\n";
-    close YAML or die "$YAML: $!\n";
+if (defined $RUNFILE) {
+    print "Creating runfile ($RUNFILE)... ";
+    create_runfile();
+    open(RUNFILE, '>', $RUNFILE) or die "$RUNFILE: $!\n";
+    print RUNFILE $runfile or die "$RUNFILE: $!\n";
+    close RUNFILE or die "$RUNFILE: $!\n";
+    print "OK\n";
+}
+if (defined $DELETEFILE) {
+    print "Creating deletefile ($DELETEFILE)... ";
+    create_deletefile();
+    open(DELETEFILE, '>', $DELETEFILE) or die "$DELETEFILE: $!\n";
+    print DELETEFILE $deletefile or die "$DELETEFILE: $!\n";
+    close DELETEFILE or die "$DELETEFILE: $!\n";
+    print "OK\n";
+}
+if (defined $RENEWFILE) {
+    print "Creating renewfile ($RENEWFILE)... ";
+    create_renewfile();
+    open(RENEWFILE, '>', $RENEWFILE) or die "$RENEWFILE: $!\n";
+    print RENEWFILE $renewfile or die "$RENEWFILE: $!\n";
+    close RENEWFILE or die "$RENEWFILE: $!\n";
     print "OK\n";
 }
 if (defined $SCRIPT) {
@@ -383,46 +417,9 @@ EOF
 EOF
 }
 
-sub create_yaml {
-    (my $r = $rspec) =~ s/^/      /gm;
-    $r =~ s/\n+$//s;
-    $yaml = <<"EOF";
----
-action: RUN
-actionOutputs:
-- filename: $DIR/$EXP/output.txt
-  format: TXT
-  target: FILE
-- filename: $DIR/$EXP/output.json
-  format: JSON
-  target: FILE
-callOutputs:
-- filename: $DIR/$EXP/apicalls.txt
-  format: TEXT
-  target: FILE
-debugOutputs:
-- filename: $DIR/$EXP/debug.txt
-  format: TXT_FULL
-  level: INFO
-  target: FILE
-experiment:
-  provision:
-    enabled: true
-  requestRSpec:
-    providedContentSource: |
-$r
-    source: PROVIDE_CONTENT
-  slice:
-    expireTimeMin: $TIME
-    failIfNoProject: true
-    sliceName: $EXP
-  waitForReady:
-    enabled: true
-output:
-  ansibleDir: $DIR/$EXP/ansible
-  manifestFile: $DIR/$EXP/output.rspec
-shareWith:
-  projectMembers: true
+sub create_user {
+    defined $user and return;
+    $user = <<"EOF";
 user:
   pem:
   - /home/clc/data/login.pem
@@ -435,9 +432,52 @@ EOF
 	defined $PWD or die "$PWD: empty file\n";
 	chomp $PWD;
     }
-    $yaml .= <<"EOF";
+    $user .= <<"EOF";
   password: $PWD
   passwordMethod: DIRECT
+EOF
+}
+
+sub create_runfile {
+    create_user();
+    (my $r = $rspec) =~ s/^/      /gm;
+    $r =~ s/\n+$//s;
+    $runfile = <<"EOF" . $user;
+---
+action: DELETE
+slice:
+  failIfNoProject: true
+  failOnExistingSlice: false
+  failOnNonExistingSlice: true
+  renewExistingSliceIfNeeded: false
+  sliceName: $EXP
+EOF
+}
+
+sub create_deletefile {
+    create_user();
+    $deletefile = <<"EOF" . $user;
+---
+action: DELETE
+slice:
+  expireTimeMin: $TIME
+  failIfNoProject: true
+  sliceName: $EXP
+EOF
+}
+
+sub create_renewfile {
+    create_user();
+    $renewfile = <<"EOF" . $user;
+---
+action: RENEW
+slice:
+  expireTimeMin: $TIME
+  failIfNoProject: true
+  failOnExistingSlice: false
+  failOnNonExistingSlice: true
+  renewExistingSliceIfNeeded: false
+  sliceName: $EXP
 EOF
 }
 

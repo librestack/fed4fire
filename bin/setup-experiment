@@ -75,6 +75,7 @@ chdir $bin or die "$bin: $!\n";
 
 # create setup data
 open(SD, '>', "$DIR/$EXP/setup-data.tmp") or die "$DIR/$EXP/setup-data.tmp: $!\n";
+open(HD, '>', "$DIR/$EXP/hosts.tmp") or die "$DIR/$EXP/hosts.tmp: $!\n";
 print SD "NAME $EXP\n" or die "$DIR/$EXP/setup-data.tmp: $!\n";
 $hslen += 4;
 for my $node (sort keys %our_nodes) {
@@ -82,10 +83,22 @@ for my $node (sort keys %our_nodes) {
     print SD "NODE $type $number $h $p $u\n"
 	or die "$DIR/$EXP/setup-data.tmp: $!\n";
     printf "NODE %-10s %s@%-${hslen}s", $node, $u, "$hs:$p";
+    my $intno = 0;
     for my $item (@{$our_nodes{$node}}) {
 	my ($hwaddr, $ipv4, $ipv6) = @$item;
 	print SD "ADDR $type $number $hwaddr $ipv4 $ipv6\n"
 	    or die "$DIR/$EXP/setup-data.tmp: $!\n";
+	if ($type eq 'router') {
+	    printf HD "%-30s %s%d%s %s%d\n%-30s %s%d%s %s%d\n",
+		    $ipv4, $type, $number, $intno ? 's' : 'c', $type, $number,
+		    $ipv6, $type, $number, $intno ? 's' : 'c', $type, $number
+		or die "$DIR/$EXP/hosts.tmp: $!\n";
+	    $intno++;
+	} else {
+	    printf HD "%-30s %s%d\n%-30s %s%d\n",
+		    $ipv4, $type, $number, $ipv6, $type, $number
+		or die "$DIR/$EXP/hosts.tmp: $!\n";
+	}
 	printf "     %-17s %-16s %s\n", $hwaddr, $ipv4, $ipv6;
     }
     for my $item (@{$our_routes{$node}}) {
@@ -95,6 +108,8 @@ for my $node (sort keys %our_nodes) {
 }
 close SD or die "$DIR/$EXP/setup-data.tmp: $!\n";
 update_file('setup-data');
+close HD or die "$DIR/$EXP/hosts.tmp: $!\n";
+update_file('hosts');
 
 # create "sizes" list
 open(SD, '>', "$DIR/$EXP/sizes.tmp") or die "$DIR/$EXP/sizes.tmp: $!\n";
@@ -116,7 +131,7 @@ if (-f $try_key) {
 # copy binaries and experiment data to director
 my ($d_type, $d_node, $d_host, $d_port, $d_user) = @{$ansible_nodes{director0}};
 rsync($d_host, $d_port, $d_user, '/tmp/experiment',
-      './', "$DIR/$EXP/setup-data", "$DIR/$EXP/sizes");
+      './', "$DIR/$EXP/setup-data", "$DIR/$EXP/sizes", "$DIR/$EXP/hosts");
 
 # run setup script on director
 #XXX ssh($d_host, $d_port, $d_user, '/tmp/experiment/setup-all');

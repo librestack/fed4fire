@@ -92,7 +92,7 @@ do
 	    tar czf "$tarball" -C /tmp/results .
 	    # copy tarball back to server
 	    scp -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
-		-P722 "$tarball" jfed@ams2.uilebheist.fr:results/
+		-P722 "$tarball" jfed@f4fresults.w42.org:results/
 	    # clean up
 	    rm -r /tmp/results
 	    rm "$tarball"

@@ -55,5 +55,10 @@ do
     sudo ip -$af route add "$rto" via "$via"
 done < /tmp/experiment/setup-data
 
+# update host table
+egrep -v '^192\.168\.|^fd' /etc/hosts > /tmp/hosts
+cat /tmp/experiment/hosts >> /tmp/hosts
+sudo cp /tmp/hosts /etc/hosts
+
 exit $code
 
