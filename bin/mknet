@@ -443,14 +443,41 @@ sub create_runfile {
     (my $r = $rspec) =~ s/^/      /gm;
     $r =~ s/\n+$//s;
     $runfile = <<"EOF" . $user;
----
-action: DELETE
-slice:
-  failIfNoProject: true
-  failOnExistingSlice: false
-  failOnNonExistingSlice: true
-  renewExistingSliceIfNeeded: false
-  sliceName: $EXP
+action: RUN
+actionOutputs:
+- filename: $DIR/$EXP/output.txt
+  format: TXT
+  target: FILE
+- filename: $DIR/$EXP/output.json
+  format: JSON
+  target: FILE
+callOutputs:
+- filename: $DIR/$EXP/apicalls.txt
+  format: TEXT
+  target: FILE
+debugOutputs:
+- filename: $DIR/$EXP/debug.txt
+  format: TXT_FULL
+  level: INFO
+  target: FILE
+experiment:
+  provision:
+    enabled: true
+  requestRSpec:
+    providedContentSource: |
+$r
+    source: PROVIDE_CONTENT
+  slice:
+    expireTimeMin: $TIME
+    failIfNoProject: true
+    sliceName: $EXP
+  waitForReady:
+    enabled: true
+output:
+  ansibleDir: $DIR/$EXP/ansible
+  manifestFile: $DIR/$EXP/output.rspec
+shareWith:
+  projectMembers: true
 EOF
 }
 
