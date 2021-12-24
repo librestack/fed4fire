@@ -25,7 +25,7 @@ my ($R, $L, $RSPEC, $RUNFILE, $RENEWFILE, $DELETEFILE, $SCRIPT, $PWD, %K, $EXP);
 my $S = 1;
 my $TIME = 120;
 my $DIR = '/tmp';
-my $AUTH = 'vwall2';
+my $AUTH = 'vwall1';
 my @config;
 -f "$Bin/../objects/id_rsa.pub" and push @config, "K=$Bin/../objects/id_rsa.pub";
 

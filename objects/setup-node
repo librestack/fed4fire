@@ -14,6 +14,7 @@ sudo cp -a /tmp/experiment/lib* /usr/local/lib/
 sudo cp -a /tmp/experiment/iotup* /usr/local/bin/
 sudo cp -a /tmp/experiment/lwmon /usr/local/bin/
 sudo cp -a /tmp/experiment/pim6sd /usr/local/bin/
+sudo cp -a /tmp/experiment/mcast???? /usr/local/bin/
 sudo cp -a /tmp/experiment/librecast* /usr/local/include/
 sudo ldconfig
 
