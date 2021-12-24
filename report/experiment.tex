@@ -117,6 +117,9 @@ how different features affect the results.
 
 Section~\ref{results} analyses the result of the experiment and compares
 the efficiency of unicast, multicast, and the transitional technology.
+There are also notes about testbed issues we identified, because anybody
+wishing to repeat the experiment will need to make sure they select
+an experiment testbed which is properly configured for IPv6 multicast.
 
 Section~\ref{future} explores the possibility of further experiments,
 to make the simulation more realistic and more complete.
@@ -406,6 +409,81 @@ experiment, so there is little difference in the actual running.
 
 \section{Experiment results}
 \label{results}
+
+\TODO{Show tables, graphs, link to result data--and draw conclusions}
+
+\subsection{Testbed issues}
+While running the experiment we have determined that some testbeds
+were not configured properly.  Initially we ran on Virtual Wall 2,
+which had the issues identified below; after investigation, we
+moved all experiments to Virtual Wall 1, which had fewer issues.
+
+There did not appear to be any MLD snooping on the VLANs we were
+assigned when creating experiments; on virtual wall 1, all multicast
+packets sent by any of the nodes appeared on other nodes in the same
+VLAN, independently of the presence of listeners on the nodes: this
+was confirmed using tcpdump.
+
+Virtual wall 2, on the other hand, had a more serious problem, in
+that packets were forwarded for some groups but not for others,
+and this also independently on the presence of listeners, so when
+we ran our experiments some worked and some did not, with no indication
+of the reason, until we identified this configuration problem with
+the switch. This issue is shown with the commands in figure~\pref{broken},
+\begin{figure}[bp]
+\begin{verbatim}
+server0$ yes 'multicast testing' | \
+         mcastsend -i `cat /tmp/interface` ff1e::42 4242
+client0$ mcastread `cat /tmp/interface` ff1e::42 4242 \
+         > /tmp/datafile
+client0$ (kill mcastread after a few seconds)
+client0$ wc /tmp/datafile
+ 1430130  2860261 25742336 /tmp/datafile
+server0$ (kill mcastsend)
+
+server0$ yes 'multicast testing' | \
+         mcastsend -i `cat /tmp/interface` ff1e::42:1234 4242
+client0$ mcastread `cat /tmp/interface` ff1e::42:1234 4242 \
+         > /tmp/datafile
+client0$ (kill mcastread after some time)
+client0$ wc /tmp/datafile
+ 0 0 0 /tmp/datafile
+server0$ (kill mcastsend)
+\end{verbatim}
+\caption{Example of effect caused by a misconfigured switch}
+\label{broken}
+\end{figure}
+
+The first set of commands shows the effect of sending a stream on a
+group which the switch had decided to forward; a client joins in the
+middle and receiving packets for a few seconds; some substantial
+amount of data is transferred.
+
+The second set of commands is identical except for the multicast
+group which is \verb+ff1e::42:1234+ instead of \verb+ff1e::42+ --
+there is no reason to expect any difference, and in fact virtual wall
+1 and our own systems give the same results as the previous set
+of commands.  However, on virtual wall 2 no data was received
+even after leaving the programs running for several minutes.
+
+This was not an issue with a single experiment network, we had this
+problem every time we had nodes allocated to virtual wall 2.
+
+Running tcpdump on all nodes, we determined that the switch was
+forwarding all packets to all nodes for some multicast groups,
+and dropping all packets for other groups; this was independent
+on the presence of listeners on the nodes.  We haven't been able
+to determine (or to find in the documentation) what criteria the
+switch used to decide what groups to forward and what groups to
+drop, so we decided to use only virtual wall 1 for our experiment.
+no data appears in the file, no matter how long one leaves mcastread
+running; on virtual wall 1 and on our own systems, we do not observe
+any difference due to the group used, so this issue appears to be
+limited to the switch connected to virtual wall 2.
+
+In summary, we need to warn anybody wishing to repeat this experiment
+to first make sure that the system they are using is properly
+configured.
 
 \section{Future work}
 \label{future}
