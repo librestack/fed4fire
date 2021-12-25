@@ -72,10 +72,10 @@ To provide evidence for the above statements, we compare the
 following methods of providing updates:
 
 \begin{itemize}
-\item Traditional unicast using a TCP-based service: a number
-of servers listen to TCP requests to send a copy of the software
-update, and each client selects a server at random and requests
-the update from it: this is the mechanism used by the vast
+\item Traditional unicast using a TCP-based service: a
+server listens to TCP requests to send a copy of the software
+update, and each client requests
+the update from the server: this is the mechanism used by the vast
 majority of current services.
 \item Full multicast: a number of servers provide the software
 update using multicast, and clients will obtain the updates by
@@ -89,7 +89,20 @@ unicast vs.\ multicast, and which ones by virtual circuits vs\.
 datagrams.
 \end{itemize}
 
-Independently of the scenario selected, there are two ``client''
+Additionally, we also measure the effect of a simple ``scp''
+of the file, to confirm that the setup works with standard,
+well-tested tools.
+
+Apart from the ``scp'' runs, do not use encryption in this experiment,
+all the three methods send the data unencrypted and verify that it
+has arrived correctly using a secure hash: this corresponds to the way
+some software updates are distributed, with an HTTP mirror providing
+the data and a secure hash provided by some more secure mechanism; we
+do not expect the results to be different when excription is used for
+all transmissions, as used in many other cases, but we might consider
+a future experiment to test this.
+
+Independently of the method selected, there are two ``client''
 scheduling strategies:
 
 \begin{itemize}
@@ -242,19 +255,19 @@ testbed, to have more experimental data without the extra overhead
 of setting up a new testbed.
 
 \subsection{Update methods}
-\TODO{describe the three update methods in more detail and update
-for the methods we are actually using}
+The ``multicast'' experiment uses the ``IoT updater'' demonstration
+program~\cite{iotupd:paper} to copy a file from server to clients: on the server
+side ``iotupd'' runs a loop in which it sends the whole file to a specified
+multicast group, then repeats the sending until the end of the experimend.
+Each client runs ``iotupc'' which waits for the data to arrive on the
+specified group and saves it to a local file, stopping when the file checksum
+matches.  There is no feedback from client to server, and no mechanism for
+a client to require retransmission of missing data; however the client
+can just wait for the server to send it again. More details on the
+IoT updater can be found in appendix~\ref{iotupd} or in the source
+code~\cite{iotupd:sources}.
 
-For the ``unicast'' experiment, each client selects a server at random,
-connects to that server, downloads the file, calculates a checksum
-to verify file integrity, and repeat if there is a problem.
-
-For the ``multicast'' experiment, each server sends a copy of the
-file on a multicast group, then repeat until all clients have received
-it (this is known to the server because everybody will have
-left the multicast group at this point).  Each client will
-join the group, wait until it has all the required data and
-the checksum is valid, then leave the group and stop.
+\TODO{describe the unicast update methods in more detail}
 
 \section{The ``Two LANs'' experiment}
 \label{TWOLAN:experiment}
@@ -536,6 +549,18 @@ stream with different quality, but in any case we would find it useful
 to run another experiment to measure these costs and compare them with
 the expected savings in terms of network usage.
 
+For this experiment we transmitted all data unencrypted between the nodes
+and used a secure hash to determine whether it was received correctly.
+This corresponds to a traditional situation in which HTTP mirrors provide
+the data, and a checksum is provided over a more secure mechanism for
+verification.  More recently, most systems are moving to HTTPS with the
+added overhead of encryption on every communication: we expect that the
+benefits of multicast shown in this experiment will continue to apply,
+but we have not tested this, and might consider a future experiment in
+which we extend the multicast update method to add encryption of all
+communication, comparing this with the normal stream encryption used
+for example with HTTPS.
+
 \appendix
 \section{Programs}
 \label{programs}
@@ -658,10 +683,7 @@ one which we actually want to use on a live system, we have developed
 our own over the years, which we call ``lwmon'', for Light-Weight
 system MONitoring, which, as the name suggests, is very considerate
 in its use of resources and can safely run very frequently without
-impact on the system.  Also, after it completes its initialisation,
-it has constant memory usage, unlike other tools which can fail
-in the middle of processing when they try to allocate more memory
-on a busy system.  It can also report on its own resource usage,
+impact on the system.  It can also report on its own resource usage,
 so one can confirm that it is, indeed, light-weight.
 
 Without going into complete details, each node sets up its own
@@ -757,8 +779,13 @@ As described below in~\ref{importing}, for this experiment we have developed
 a tool which calls {\tt lwmon-to-sql} in the appropriate way to import
 experiment results in a format suitable for further analysis.
 
-\subsubsection{Programs implementing the update methods}
-\TODO{iotupd, iotup, \ldots}
+\subsubsection{Programs implementing the multicsst update method}
+\label{iotupd}
+\TODO{iotupd}
+
+\subsubsection{Programs implementing the unicast update methods}
+\label{unisync}
+\TODO{unisync}
 
 \subsection{Importing results in a database}
 \label{importing}
@@ -772,19 +799,25 @@ experiment results in a format suitable for further analysis.
 \begin{thebibliography}{99}
 \begin{sloppypar}
 
-\bibitem{exp:scripts}
-  C. Calvelli, E. Payne, B. Sheffield.
-  {\em Fed4fire experiment setup scripts}.\\
-  \url{https://example.com/TODO-need-url}
-
 \bibitem{lwmon}
   C. Calvelli.
   {\em lwmon: A {\bf\em l}ight-{\bf\em w}eight system {\bf\em mon}itoring tool}.\\
   \url{https://example.com/TODO-need-url}
 
+\bibitem{exp:scripts}
+  C. Calvelli, E. Payne, B. Sheffield.
+  {\em Fed4fire experiment setup scripts}.\\
+  \url{https://example.com/TODO-need-url}
+
 \bibitem{jfed}
   {\em jfed 5.9 documentation}.\\
   \url{https://doc.ilabt.imec.be/jfed-documentation-5.9/index.html}
+
+\bibitem{iotupd:paper}
+  TODO: iotupd paper
+
+\bibitem{iotupd:sources}
+  TODO: iotupd sources
 
 \end{sloppypar}
 \end{thebibliography}
