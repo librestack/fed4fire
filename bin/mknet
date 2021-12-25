@@ -46,7 +46,7 @@ while (@config) {
     $A =~ /^S=(\d+)$/i and $S = $1, next;
     $A =~ /^R=(\d+)$/i and $R = $1, next;
     $A =~ /^L=(\d+)$/i and $L = $1, next;
-    $A =~ /^TIME=(\d+)$/i and $TIME = $1, next;
+    $A =~ /^TIME=(\d+)(h?)$/i and $TIME = $1 * ($2 ? 60 : 1), next;
     $A =~ /^RSPEC=(.+)$/i and $RSPEC = $1, next;
     $A =~ /^RUNFILE=(.+)$/i and $RUNFILE = $1, next;
     $A =~ /^DELETEFILE=(.+)$/i and $DELETEFILE = $1, next;

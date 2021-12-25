@@ -19,3 +19,5 @@ do
     fi
 done < /tmp/experiment/setup-data
 
+/tmp/experiment/ping-all-nodes
+

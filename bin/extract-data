@@ -16,10 +16,10 @@ do
 	run="`basename "$src"`"
 	[[ "$run" =~ -[0-9][0-9]*\.tar ]] || continue # not one of our experiment files
 	echo "$run"
-	top="${run%%-*}"
+	boot="${run%%-*}"
 	run="${run##*-}"
 	run="${run%%.*}"
-	tar xf "$src" -C "$DST_DIR" --transform='s:$:'".$top.$run:"
+	tar xf "$src" -C "$DST_DIR" --transform='s*$*'".$boot.$run*"
     done
 done
 

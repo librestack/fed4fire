@@ -14,6 +14,7 @@ create table if not exists lwmon_data (
     topology varchar(255),
     host varchar(255),
     experiment varchar(255),
+    boot_time int,
     schedule varchar(255),
     datasize int,
     run int,
@@ -25,22 +26,24 @@ create table if not exists lwmon_data (
 );
 
 create index lwmon_data_run
-on lwmon_data(topology, experiment, schedule, datasize, run, host);
+on lwmon_data(topology, experiment, boot_time, schedule, datasize, run, host);
 EOF
 
 while (@ARGV) {
     my $name = shift @ARGV;
     my $path = abs_path($name);
     defined $path or die "Something wrong with $name\n";
-    $path =~ m|/\w+\.(\w+)\.(\w+)\.(\d+)\.(\w+)\.(\d+)$|
+    $path =~ m|/\w+\.(\w+)\.(\w+)\.(\d+)\.(\w+)(?::(\d+))?\.(\d+)$|
 	or die "Invalid datafile name: $name\n";
-    my ($experiment, $schedule, $size, $topology, $run) = ($1, $2, $3, $4, $5);
+    my ($experiment, $schedule, $size, $topology, $boot_time, $run) = ($1, $2, $3, $4, $5, $6);
+    defined $boot_time && $boot_time ne '' or $boot_time = 0;
     print "Reading $name\n";
     open(SQL, '-|', 'lwmon-to-sql',
 		    '-tlwmon_data',
 		    '-Hhost',
 		    "-etopology=$topology",
 		    "-eexperiment=$experiment",
+		    "-eboot_time=$boot_time",
 		    "-eschedule=$schedule",
 		    "-edatasize=$size",
 		    "-erun=$run",

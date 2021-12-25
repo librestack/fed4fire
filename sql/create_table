@@ -1,7 +1,8 @@
-create table lwmon_data (
+create table if not exists lwmon_data (
     topology varchar(255),
     host varchar(255),
     experiment varchar(255),
+    boot_time int,
     schedule varchar(255),
     datasize int,
     run int,
@@ -13,5 +14,5 @@ create table lwmon_data (
 );
 
 create index lwmon_data_run
-on lwmon_data(topology, experiment, schedule, datasize, run, host);
+on lwmon_data(topology, experiment, boot_time, schedule, datasize, run, host);
 

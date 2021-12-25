@@ -10,13 +10,21 @@ my $dbh = DBI->connect("dbi:SQLite:dbname=$database", '', '',
 		       { RaiseError => 1, ReadOnly => 1 });
 
 my %what = (
-    load    => ['lavg',    '1minute',           0.01,  '%.2f' ],
-    tx      => ['if1',     'bytes_sent',        1e-3,  '%.0f' ],
-    rx      => ['if1',     'bytes_received',    1e-3,  '%.0f' ],
-    tx2     => ['if2',     'bytes_sent',        1e-3,  '%.0f' ],
-    rx2     => ['if2',     'bytes_received',    1e-3,  '%.0f' ],
-    mem     => ['memswap', 'used_memory_pages', 1/256, '%.0f' ],
-    swap    => ['memswap', 'used_swap_pages',   1/256, '%.0f' ],
+    load    => ['lavg',    '1minute',                   0.01,  '%.2f' ],
+
+    tx      => ['if1',     'bytes_sent',                1e-3,  '%.0f' ],
+    rx      => ['if1',     'bytes_received',            1e-3,  '%.0f' ],
+    net     => ['if1',     'bytes_sent+bytes_received', 1e-3,  '%.0f' ],
+    tx2     => ['if2',     'bytes_sent',                1e-3,  '%.0f' ],
+    rx2     => ['if2',     'bytes_received',            1e-3,  '%.0f' ],
+    net2    => ['if1',     'bytes_sent+bytes_received', 1e-3,  '%.0f' ],
+
+    mem     => ['memswap', 'used_memory_pages',         1/256, '%.0f' ],
+    swap    => ['memswap', 'used_swap_pages',           1/256, '%.0f' ],
+
+    usercpu => ['cpu',     'user',                      0.001, '%.3f' ],
+    syscpu  => ['cpu',     'system',                    0.001, '%.3f' ],
+    totcpu  => ['cpu',     'user+system',               0.001, '%.3f' ],
 );
 
 my @where = ("host = 'server0'"); # see comment below
@@ -58,16 +66,17 @@ while (@ARGV) {
 # the same run
 my $where = join("\n  AND ", @where);
 my @runs = @{ $dbh->selectall_arrayref(<<EOF) };
-SELECT topology, experiment, schedule, datasize, run
+SELECT topology, boot_time, experiment, schedule, datasize, run
 FROM lwmon_data
 WHERE $where
-GROUP BY topology, experiment, schedule, datasize, run;
+GROUP BY topology, boot_time, experiment, schedule, datasize, run;
 EOF
 
 my $host_handle = $dbh->prepare(<<EOF);
 SELECT host
 FROM lwmon_data
 WHERE topology = ?
+  AND boot_time = ?
   AND experiment = ?
   AND schedule = ?
   AND datasize = ?
@@ -79,6 +88,7 @@ my $end_handle = $dbh->prepare(<<EOF);
 SELECT timestamp, value
 FROM lwmon_data
 WHERE topology = ?
+  AND boot_time = ?
   AND experiment = ?
   AND schedule = ?
   AND datasize = ?
@@ -92,6 +102,7 @@ my $data_handle = $dbh->prepare(<<EOF);
 SELECT timestamp, value
 FROM lwmon_data
 WHERE topology = ?
+  AND boot_time = ?
   AND experiment = ?
   AND schedule = ?
   AND datasize = ?
@@ -102,15 +113,17 @@ WHERE topology = ?
   order by timestamp
 EOF
 
-for my $run (sort { $a->[4] <=> $b->[4] ||
-		    $a->[1] cmp $b->[1] ||
+for my $run (sort { $a->[5] <=> $b->[5] ||
 		    $a->[2] cmp $b->[2] ||
-		    $a->[3] <=> $b->[3] ||
-		    $a->[0] cmp $b->[0]
+		    $a->[3] cmp $b->[3] ||
+		    $a->[4] <=> $b->[4] ||
+		    $a->[0] cmp $b->[0] ||
+		    $a->[1] <=> $b->[1] 
 		  } @runs)
 {
-    printf "RUN: %-10s %-10s %-10s %5d  %s\n",
-	   $run->[0], $run->[1], $run->[2], $run->[3], fmt_time($run->[4]);
+    printf "RUN: %-20s %-10s %-10s %5d  %s\n",
+	   $run->[0] . ($run->[1] ? ('@' . fmt_ts($run->[1])) : ''),
+	   $run->[2], $run->[3], $run->[4], fmt_time($run->[5]);
     my @hosts = map { $_->[0] }
 		@{ $dbh->selectall_arrayref($host_handle, {}, @$run) };
     # determine when each client started and completed
@@ -119,12 +132,15 @@ for my $run (sort { $a->[4] <=> $b->[4] ||
 	$host =~ /^client/ or next;
 	my $wall_time;
 	($end{$host}, $wall_time) = $dbh->selectrow_array($end_handle, {}, @$run, $host);
+	# because all measurements are "the last second", we could clients as having
+	# started and ended 1 second later than the timestamps suggest
+	$end{$host}++;
 	$start{$host} = $end{$host} - int($wall_time / 1000 + .9);
     }
     # now extract the data required
-    my $fmt = '%7d';
-    my $title1 = '  num  ';
-    my $title2 = 'clients';
+    my $fmt = '%4d | %7d';
+    my $title1 = ' run |   num  ';
+    my $title2 = 'time | clients';
     my %data;
     my $column = 0;
     for my $what (@what) {
@@ -155,14 +171,23 @@ for my $run (sort { $a->[4] <=> $b->[4] ||
 	    $fmt .= $sp0 . ' %' . (length $h) . 's' . $sp1;
 	    my ($name, $item, $scale, $format) = @{$what{$key}};
 	    # get data for this host
-	    for my $data (@{ $dbh->selectall_arrayref($data_handle, {},
-			     @$run, $h, $name, $item) })
-	    {
-		my ($timestamp, $value) = @$data;
-		if ($div) {
-		    $data{$timestamp}[$column] = [$format, $value, $scale];
-		} else {
-		    $data{$timestamp}[$column] = sprintf $format, $value * $scale;
+	    my %D;
+	    for my $kw (split(/\+/, $item)) {
+		for my $data (@{ $dbh->selectall_arrayref($data_handle, {},
+				 @$run, $h, $name, $kw) })
+		{
+		    my ($timestamp, $value) = @$data;
+		    defined $D{$timestamp} or $D{$timestamp} = 0;
+		    $D{$timestamp} += $value;
+		}
+	    }
+	    if ($div) {
+		for my $timestamp (keys %D) {
+		    $data{$timestamp}[$column] = [$format, $D{$timestamp}, $scale];
+		}
+	    } else {
+		for my $timestamp (keys %D) {
+		    $data{$timestamp}[$column] = sprintf $format, $D{$timestamp} * $scale;
 		}
 	    }
 	    $column++;
@@ -172,24 +197,33 @@ for my $run (sort { $a->[4] <=> $b->[4] ||
     print "$title1\n$title2\n";
     my $nc = 0;
     my $prev = 0;
+    my $timebase = undef;
     for my $timestamp (sort { $a <=> $b } keys %data) {
+	defined $timebase or $timebase = $timestamp;
 	for my $t (values %start) {
 	    $t > $prev && $t <= $timestamp and $nc++;
 	}
 	for my $t (values %end) {
 	    $t >= $prev && $t < $timestamp and $nc--;
 	}
-	my @prn = ($nc);
+	my @prn = ($timestamp - $timebase, $nc);
+	my $has_values = 0;
 	for (my $i = 0; $i < $column; $i++) {
 	    my $d = $data{$timestamp}[$i];
 	    if (! defined $d) {
 		$d = '';
 	    } elsif (ref $d) {
-		my ($format, $value, $scale) = @$d;
-		$d = sprintf $format, $value * $scale / ($nc || 1);
+		if ($nc > 0) {
+		    my ($format, $value, $scale) = @$d;
+		    $d = sprintf $format, $value * $scale / $nc;
+		} else {
+		    $d = '';
+		}
 	    }
 	    push @prn, $d;
+	    $d ne '' and $has_values = 1;
 	}
+	$has_values or next;
 	printf $fmt, @prn;
 	$prev = $timestamp;
     }
@@ -206,5 +240,10 @@ sub fmt_time {
 	 . substr($ts,  8, 2) . ':'
 	 . substr($ts, 10, 2) . ':'
 	 . substr($ts, 12, 2);
+}
+
+sub fmt_ts {
+    my ($ts) = @_;
+    return strftime('%Y-%m-%d %H:%M:%S', gmtime($ts));
 }
 

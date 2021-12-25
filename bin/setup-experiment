@@ -42,6 +42,10 @@ while (<MO>) {
     my $hwaddr = join(':', $1, $2, $3, $4, $5, $6);
     $hwaddr{$node}{$ifno} = $hwaddr;
 }
+# record the mtime of the output rspec: we consider this as an approximation
+# of the experiment boot time (it does not have to be precise, just to be
+# able to distinguish between separate boots of the same experiment)
+my $boot = (stat MO)[9];
 close MO;
 
 my (%our_nodes, %our_routes);
@@ -76,7 +80,7 @@ chdir $bin or die "$bin: $!\n";
 # create setup data
 open(SD, '>', "$DIR/$EXP/setup-data.tmp") or die "$DIR/$EXP/setup-data.tmp: $!\n";
 open(HD, '>', "$DIR/$EXP/hosts.tmp") or die "$DIR/$EXP/hosts.tmp: $!\n";
-print SD "NAME $EXP\n" or die "$DIR/$EXP/setup-data.tmp: $!\n";
+print SD "NAME $EXP:$boot\n" or die "$DIR/$EXP/setup-data.tmp: $!\n";
 $hslen += 4;
 for my $node (sort keys %our_nodes) {
     my ($type, $number, $h, $p, $u, $hs) = @{$ansible_nodes{$node}};
