@@ -1,0 +1,140 @@
+#!/usr/bin/perl -w
+
+use strict;
+use DBI;
+use POSIX 'strftime';
+
+@ARGV > 1 or die "Usage: $0 DATABASE TYPE... DATA...\n";
+my $database = shift @ARGV;
+my $dbh = DBI->connect("dbi:SQLite:dbname=$database", '', '',
+		       { RaiseError => 1, ReadOnly => 1 });
+
+my (%type, %experiment, %schedule, %data, $all_data, %topology, $all_topologies, %sizes);
+while (@ARGV) {
+    my $cmd = shift @ARGV;
+    if ($cmd =~ /^(?:client|router|server)$/i) {
+	$type{lc $cmd} = 1;
+	next;
+    }
+    if (lc($cmd) eq 'all_types' || lc($cmd) eq 'at') {
+	$type{$_} = 1 for qw(client router server udp);
+	next;
+    }
+    if ($cmd =~ /^(?:multicast|scp|tcp|udp)$/i) {
+	$experiment{lc $cmd} = 1;
+	next;
+    }
+    if (lc($cmd) eq 'all_experiments' || lc($cmd) eq 'ae') {
+	$experiment{$_} = 1 for qw(multicast scp tcp udp);
+	next;
+    }
+    if ($cmd =~ /^(?:immediate|random)$/i) {
+	$schedule{lc $cmd} = 1;
+	next;
+    }
+    if (lc($cmd) eq 'all_schedules' || lc($cmd) eq 'as') {
+	$schedule{$_} = 1 for qw(immediate random);
+	next;
+    }
+    if ($cmd =~ /^S\d+(?:R\d+)L\d+$/) {
+	$topology{$cmd} = 1;
+	next;
+    }
+    if (lc($cmd) eq 'all_topologies' || lc($cmd) eq 'an') {
+	$all_topologies = 1;
+	next;
+    }
+    if ($cmd =~ /^\d+$/) {
+	$sizes{$cmd} = 1;
+	next;
+    }
+    if (lc($cmd) eq 'all_sizes' || lc($cmd) eq 'az') {
+	$sizes{$_} = 1 for (32, 128, 512, 2048);
+	next;
+    }
+    if (lc($cmd) eq 'all_data' || lc($cmd) eq 'ad') {
+	$all_data = 1;
+	next;
+    }
+    $data{lc $cmd} = 1;
+}
+keys %type or die "No host types requested\n";
+keys %experiment or die "No experiment types selected\n";
+keys %schedule or die "No schedules selected\n";
+keys %sizes or die "No sizes selected\n";
+
+if ($all_data) {
+    for my $dp (@{ $dbh->selectall_arrayref('SELECT key FROM lwmon_summary GROUP BY key;') }) {
+	$data{$dp->[0]} = 1;
+    }
+}
+keys %data or die "No data requested\n";
+
+if ($all_topologies) {
+    for my $tp (@{ $dbh->selectall_arrayref('SELECT topology FROM lwmon_summary GROUP BY topology;') }) {
+	$topology{$tp->[0]} = 1;
+    }
+}
+
+if (keys %topology) {
+    my $rdata = $dbh->prepare(<<EOF);
+SELECT n_clients, total / count
+FROM lwmon_summary
+WHERE experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND host_type = ?
+  AND topology = ?
+  AND key = ?
+ORDER BY n_clients
+EOF
+    for my $topology (sort keys %topology) {
+	for my $experiment (sort keys %experiment) {
+	    for my $schedule (sort keys %schedule) {
+		for my $size (sort keys %sizes) {
+		    for my $type (sort keys %type) {
+			for my $data (sort keys %data) {
+			    run_data($rdata, $experiment, $schedule, $size, $type, $topology, $data);
+			}
+		    }
+		}
+	    }
+	}
+    }
+} else {
+    my $rdata = $dbh->prepare(<<EOF);
+SELECT n_clients, SUM(total) / SUM(count)
+FROM lwmon_summary
+WHERE experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND host_type = ?
+  AND key = ?
+GROUP BY n_clients
+ORDER BY n_clients
+EOF
+    for my $experiment (sort keys %experiment) {
+	for my $schedule (sort keys %schedule) {
+	    for my $size (sort keys %sizes) {
+		for my $type (sort keys %type) {
+		    for my $data (sort keys %data) {
+			run_data($rdata, $experiment, $schedule, $size, $type, $data);
+		    }
+		}
+	    }
+	}
+    }
+}
+
+$dbh->disconnect();
+
+sub run_data {
+    my ($handle, @data) = @_;
+    my $title = join(' ', @data) . "\n";
+    for my $dp (@{ $dbh->selectall_arrayref($handle, {}, @data) }) {
+	print $title;
+	$title = '';
+	printf "%3d %10.3f\n", @$dp;
+    }
+}
+

@@ -28,8 +28,7 @@ my %what = (
 );
 
 my @where = ("host = 'server0'"); # see comment below
-my @what;
-my $count;
+my (@what, $count, $output);
 while (@ARGV) {
     my $cmd = shift @ARGV;
     if ($cmd =~ /^run=(\d+)$/i) {
@@ -56,14 +55,26 @@ while (@ARGV) {
 	push @where, "datasize $1 $2";
 	next;
     }
-    if ($cmd =~ /^(client|server|router):(\w+)(\/?)$/i) {
-	my ($type, $key, $div) = (lc($1), lc($2), $3);
+    if ($cmd =~ /^(client|server|router):(\w+)$/i) {
+	my ($type, $key) = (lc($1), lc($2));
 	exists $what{$key} or die "Invalid key: $2\n";
-	push @what, [$type, $key, $div];
+	push @what, [$type, $key];
+	next;
+    }
+    if ($cmd eq 'all') {
+	for my $type (qw(client router server)) {
+	    for my $key (keys %what) {
+		push @what, [$type, $key];
+	    }
+	}
 	next;
     }
     if ($cmd eq 'count') {
 	$count = 1;
+	next;
+    }
+    if ($cmd =~ /^out(?:put)?=(.*)$/i) {
+	$output = $1;
 	next;
     }
     die "Unknown command: $cmd\n";
@@ -104,7 +115,7 @@ WHERE topology = ?
   AND run = ?
   AND host = ?
   AND name = 'experiment'
-  AND key = 'wallclock'
+  AND key = 'wallclock';
 EOF
 
 my $data_handle = $dbh->prepare(<<EOF);
@@ -119,8 +130,57 @@ WHERE topology = ?
   AND host = ?
   AND name = ?
   AND key = ?
-  order by timestamp
+  order by timestamp;
 EOF
+
+my ($odbh, $exists_handle, $insert_handle, $update_handle);
+if (defined $output && @what) {
+    $odbh = DBI->connect("dbi:SQLite:dbname=$output", '', '',
+			 { RaiseError => 1, AutoCommit => 0 });
+    run_update(<<EOF, 1);
+create table lwmon_summary (
+    experiment varchar(255),
+    schedule varchar(255),
+    datasize int,
+    host_type varchar(255),
+    topology varchar(255),
+    n_clients int,
+    key varchar(255),
+    count int,
+    total int
+);
+EOF
+    run_update(<<EOF, 1);
+create index lwmon_summary_type
+on lwmon_summary(experiment, schedule, datasize, host_type, topology, n_clients, key);
+EOF
+    $exists_handle = $odbh->prepare(<<EOF);
+SELECT COUNT(*) FROM lwmon_summary
+WHERE experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND topology = ?
+  AND host_type = ?
+  AND n_clients = ?
+  AND key = ?;
+EOF
+    $insert_handle = $odbh->prepare(<<EOF);
+INSERT INTO lwmon_summary
+(total, experiment, schedule, datasize, topology, host_type, n_clients, key, count)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1);
+EOF
+    $update_handle = $odbh->prepare(<<EOF);
+UPDATE lwmon_summary
+SET count = count + 1, total = total + ?
+WHERE experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND topology = ?
+  AND host_type = ?
+  AND n_clients = ?
+  AND key = ?;
+EOF
+}
 
 my %count;
 for my $run (sort { $a->[5] <=> $b->[5] ||
@@ -132,9 +192,11 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 		  } @runs)
 {
     my ($topology, $boot_time, $experiment, $schedule, $datasize, $run_ts) = @$run;
+    my $dtop = $topology;
+    $dtop =~ s/\D+$//;
     if (@what) {
-	printf "RUN: %-20s %-10s %-10s %5d  %s\n",
-	       $topology . ($boot_time ? ('@' . fmt_ts($boot_time)) : ''),
+	printf "RUN: %-10s %-20s %-10s %-10s %5d  %s\n",
+	       $topology, ($boot_time ? fmt_ts($boot_time) : ''),
 	       $experiment, $schedule, $datasize, fmt_time($run_ts);
 	my @hosts = map { $_->[0] }
 		    @{ $dbh->selectall_arrayref($host_handle, {}, @$run) };
@@ -142,12 +204,12 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	my (%start, %end);
 	for my $host (@hosts) {
 	    $host =~ /^client/ or next;
-	    my $wall_time;
-	    ($end{$host}, $wall_time) = $dbh->selectrow_array($end_handle, {}, @$run, $host);
-	    # because all measurements are "the last second", we could clients as having
+	    my ($end, $wall_time) = $dbh->selectrow_array($end_handle, {}, @$run, $host);
+	    defined $wall_time or next;
+	    # because all measurements are "the last second", we count clients as having
 	    # started and ended 1 second later than the timestamps suggest
-	    $end{$host}++;
-	    $start{$host} = $end{$host} - int($wall_time / 1000 + .9);
+	    $end{$host} = $end + 1;
+	    $start{$host} = $end + 1 - int($wall_time / 1000 + .9);
 	}
 	# now extract the data required
 	my $fmt = '%4d | %7d';
@@ -155,12 +217,13 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	my $title2 = 'time | clients';
 	my %data;
 	my $column = 0;
+	my (@host_type, @key);
 	for my $what (@what) {
-	    my ($type, $key, $div) = @$what;
+	    my ($type, $key) = @$what;
 	    my $tl = length $type;
 	    my @h = grep { substr($_, 0, $tl) eq $type } @hosts;
 	    my $h = join(' ', @h);
-	    my $tk = "$type\:$key$div";
+	    my $tk = "$type\:$key";
 	    my ($sp0, $sp1);
 	    if (length($tk) < length($h)) {
 		my $l1 = length($h) - length($tk);
@@ -193,20 +256,18 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 			$D{$timestamp} += $value;
 		    }
 		}
-		if ($div) {
-		    for my $timestamp (keys %D) {
-			$data{$timestamp}[$column] = [$format, $D{$timestamp}, $scale];
-		    }
-		} else {
-		    for my $timestamp (keys %D) {
-			$data{$timestamp}[$column] = sprintf $format, $D{$timestamp} * $scale;
-		    }
+		for my $timestamp (keys %D) {
+		    $data{$timestamp}[$column] = sprintf $format, $D{$timestamp} * $scale;
+		}
+		if ($odbh) {
+		    $host_type[$column] = $type;
+		    $key[$column] = $key;
 		}
 		$column++;
 	    }
 	}
 	$fmt .= "\n";
-	print "$title1\n$title2\n";
+	$odbh or print "$title1\n$title2\n";
 	my $nc = 0;
 	my $prev = 0;
 	my $timebase = undef;
@@ -218,37 +279,35 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	    for my $t (values %end) {
 		$t >= $prev && $t < $timestamp and $nc--;
 	    }
+	    $prev = $timestamp;
 	    my @prn = ($timestamp - $timebase, $nc);
 	    my $has_values = 0;
 	    for (my $i = 0; $i < $column; $i++) {
 		my $d = $data{$timestamp}[$i];
 		if (! defined $d) {
 		    $d = '';
-		} elsif (ref $d) {
-		    if ($nc > 0) {
-			my ($format, $value, $scale) = @$d;
-			$d = sprintf $format, $value * $scale / $nc;
-		    } else {
-			$d = '';
-		    }
+		} elsif ($odbh) {
+		    add_data($experiment, $schedule, $datasize, $dtop,
+			     $host_type[$i], $nc, $key[$i], $d);
 		}
 		push @prn, $d;
 		$d ne '' and $has_values = 1;
 	    }
 	    $has_values or next;
+	    $odbh and next;
 	    printf $fmt, @prn;
-	    $prev = $timestamp;
 	}
-	print "\n";
+	$odbh or print "\n";
+	$odbh and run_update(undef, 1);
     }
     if ($count) {
-	$topology =~ s/[^\d]+$//;
-	defined $count{$topology}{$experiment}{$schedule}{$datasize}
-	    or $count{$topology}{$experiment}{$schedule}{$datasize} = 0;
-	$count{$topology}{$experiment}{$schedule}{$datasize}++;
+	defined $count{$dtop}{$experiment}{$schedule}{$datasize}
+	    or $count{$dtop}{$experiment}{$schedule}{$datasize} = 0;
+	$count{$dtop}{$experiment}{$schedule}{$datasize}++;
     }
 }
 
+$odbh and $odbh->disconnect();
 $dbh->disconnect();
 
 if ($count) {
@@ -278,5 +337,22 @@ sub fmt_time {
 sub fmt_ts {
     my ($ts) = @_;
     return strftime('%Y-%m-%d %H:%M:%S', gmtime($ts));
+}
+
+sub run_update {
+    my ($query, $commit) = @_;
+    defined $query and $odbh->do($query) || die "$query\n" . $dbh->errstr . "\n";
+    $commit and $odbh->commit || die "Commit: " . $dbh->errstr . "\n";
+}
+
+sub add_data {
+    my @data = @_;
+    my $value = pop @data;
+    my ($count) = $odbh->selectrow_array($exists_handle, {}, @data);
+    if ($count) {
+	$update_handle->execute($value, @data);
+    } else {
+	$insert_handle->execute($value, @data);
+    }
 }
 

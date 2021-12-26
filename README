@@ -136,6 +136,27 @@ Alternatively, the data can be imported into a SQLite database with:
 
 ./bin/import-into-sqlite database.sqlite "$DST_DIR"/*
 
-The sql directory contains some simple SELECT statements to extract some
-information. More useful reports are planned.
+The database will contain tens of millions of rows if importing the full
+experiment results, and will require about 4GB of free space.  Once this
+has been created, the following command will extract a "summary" of
+all the data we measure collected by experiment type and number of
+active clients:
+
+./bin/lookup-result database.sqlite all out=summary.sqlite
+
+the same program can also select a subset of the data (replaceing the "all"
+with items like server:load or router:tx (bytes transmitted), and it can
+just print the numbers on standard output rather than creating a database
+by omitting the "Out=" line (this is why it's called "lookup-result",
+originally it was meant to look up a specific experiment).
+
+Another tool allows to average the information from the summary database
+and just print things like server CPU usage versus number of clients
+active with something like:
+
+./bin/get-summary summary.sqlite server usercpu (experiment types, schedules, sizes)
+
+e.g. for multicast and scp experiments, "immediate" scheduling and 2048 MB:
+
+./bin/get-summary summary.sqlite server usercpu multicast scp immediate 2048
 
