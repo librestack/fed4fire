@@ -26,7 +26,7 @@ create table if not exists lwmon_data (
 );
 
 create index lwmon_data_run
-on lwmon_data(topology, experiment, boot_time, schedule, datasize, run, host);
+on lwmon_data(topology, boot_time, experiment, schedule, datasize, run, host);
 EOF
 
 while (@ARGV) {

@@ -1,0 +1,18 @@
+#!/bin/sh
+
+ssh='ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa -n'
+
+chmod 600 /tmp/experiment/id_rsa
+
+echo "Abort director0"
+sudo killall -9 run-experiment
+while read what type number host port user
+do
+    [ "$what" = NODE ] || continue
+    [ "$type" = director ] && continue
+    echo "Abort $type$number"
+    [ "$type" = client ] && $ssh "$type$number" sudo killall iotup iotupc scp
+    [ "$type" = router ] && $ssh "$type$number" sudo killall pim6sd sleep
+    [ "$type" = server ] && $ssh "$type$number" sudo killall iotup iotupd sleep
+done < /tmp/experiment/setup-data
+

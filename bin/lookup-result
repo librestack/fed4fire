@@ -29,6 +29,7 @@ my %what = (
 
 my @where = ("host = 'server0'"); # see comment below
 my @what;
+my $count;
 while (@ARGV) {
     my $cmd = shift @ARGV;
     if ($cmd =~ /^run=(\d+)$/i) {
@@ -37,6 +38,10 @@ while (@ARGV) {
     }
     if ($cmd =~ /^top(?:ology)?=(\S+)$/i) {
 	push @where, "topology = '$1'";
+	next;
+    }
+    if ($cmd =~ /^boot(?:_time)?(=|>|<)(\S+)$/i) {
+	push @where, "boot_time $1 $2";
 	next;
     }
     if ($cmd =~ /^exp(?:eriment)?=(\S+)$/i) {
@@ -57,9 +62,13 @@ while (@ARGV) {
 	push @what, [$type, $key, $div];
 	next;
     }
+    if ($cmd eq 'count') {
+	$count = 1;
+	next;
+    }
     die "Unknown command: $cmd\n";
 }
-@what or die "No data requested\n";
+$count || @what or die "No data requested\n";
 
 # find all runs: we know a network must have a server0, as there is always
 # at least 1 server; all other hosts will share the same information for
@@ -113,6 +122,7 @@ WHERE topology = ?
   order by timestamp
 EOF
 
+my %count;
 for my $run (sort { $a->[5] <=> $b->[5] ||
 		    $a->[2] cmp $b->[2] ||
 		    $a->[3] cmp $b->[3] ||
@@ -121,116 +131,139 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 		    $a->[1] <=> $b->[1] 
 		  } @runs)
 {
-    printf "RUN: %-20s %-10s %-10s %5d  %s\n",
-	   $run->[0] . ($run->[1] ? ('@' . fmt_ts($run->[1])) : ''),
-	   $run->[2], $run->[3], $run->[4], fmt_time($run->[5]);
-    my @hosts = map { $_->[0] }
-		@{ $dbh->selectall_arrayref($host_handle, {}, @$run) };
-    # determine when each client started and completed
-    my (%start, %end);
-    for my $host (@hosts) {
-	$host =~ /^client/ or next;
-	my $wall_time;
-	($end{$host}, $wall_time) = $dbh->selectrow_array($end_handle, {}, @$run, $host);
-	# because all measurements are "the last second", we could clients as having
-	# started and ended 1 second later than the timestamps suggest
-	$end{$host}++;
-	$start{$host} = $end{$host} - int($wall_time / 1000 + .9);
-    }
-    # now extract the data required
-    my $fmt = '%4d | %7d';
-    my $title1 = ' run |   num  ';
-    my $title2 = 'time | clients';
-    my %data;
-    my $column = 0;
-    for my $what (@what) {
-	my ($type, $key, $div) = @$what;
-	my $tl = length $type;
-	my @h = grep { substr($_, 0, $tl) eq $type } @hosts;
-	my $h = join(' ', @h);
-	my $tk = "$type\:$key$div";
-	my ($sp0, $sp1);
-	if (length($tk) < length($h)) {
-	    my $l1 = length($h) - length($tk);
-	    my $l2 = int($l1 / 2);
-	    $l1 -= $l2;
-	    $sp0 = $sp1 = '';
-	    $title1 .= ' | ' . (' ' x $l1) . $tk . (' ' x $l2);
-	    $title2 .= ' | ' . $h;
-	} elsif (length($h) < length($tk)) {
-	    my $l1 = length($tk) - length($h);
-	    my $l2 = int($l1 / 2);
-	    $l1 -= $l2;
-	    $sp0 = ' ' x $l1;
-	    $sp1 = ' ' x $l2;
-	    $title1 .= ' | ' . $tk;
-	    $title2 .= ' | ' . $sp0 . $h . $sp1;
+    my ($topology, $boot_time, $experiment, $schedule, $datasize, $run_ts) = @$run;
+    if (@what) {
+	printf "RUN: %-20s %-10s %-10s %5d  %s\n",
+	       $topology . ($boot_time ? ('@' . fmt_ts($boot_time)) : ''),
+	       $experiment, $schedule, $datasize, fmt_time($run_ts);
+	my @hosts = map { $_->[0] }
+		    @{ $dbh->selectall_arrayref($host_handle, {}, @$run) };
+	# determine when each client started and completed
+	my (%start, %end);
+	for my $host (@hosts) {
+	    $host =~ /^client/ or next;
+	    my $wall_time;
+	    ($end{$host}, $wall_time) = $dbh->selectrow_array($end_handle, {}, @$run, $host);
+	    # because all measurements are "the last second", we could clients as having
+	    # started and ended 1 second later than the timestamps suggest
+	    $end{$host}++;
+	    $start{$host} = $end{$host} - int($wall_time / 1000 + .9);
 	}
-	$fmt .= ' |';
-	for my $h (@h) {
-	    $fmt .= $sp0 . ' %' . (length $h) . 's' . $sp1;
-	    my ($name, $item, $scale, $format) = @{$what{$key}};
-	    # get data for this host
-	    my %D;
-	    for my $kw (split(/\+/, $item)) {
-		for my $data (@{ $dbh->selectall_arrayref($data_handle, {},
-				 @$run, $h, $name, $kw) })
-		{
-		    my ($timestamp, $value) = @$data;
-		    defined $D{$timestamp} or $D{$timestamp} = 0;
-		    $D{$timestamp} += $value;
-		}
+	# now extract the data required
+	my $fmt = '%4d | %7d';
+	my $title1 = ' run |   num  ';
+	my $title2 = 'time | clients';
+	my %data;
+	my $column = 0;
+	for my $what (@what) {
+	    my ($type, $key, $div) = @$what;
+	    my $tl = length $type;
+	    my @h = grep { substr($_, 0, $tl) eq $type } @hosts;
+	    my $h = join(' ', @h);
+	    my $tk = "$type\:$key$div";
+	    my ($sp0, $sp1);
+	    if (length($tk) < length($h)) {
+		my $l1 = length($h) - length($tk);
+		my $l2 = int($l1 / 2);
+		$l1 -= $l2;
+		$sp0 = $sp1 = '';
+		$title1 .= ' | ' . (' ' x $l1) . $tk . (' ' x $l2);
+		$title2 .= ' | ' . $h;
+	    } elsif (length($h) < length($tk)) {
+		my $l1 = length($tk) - length($h);
+		my $l2 = int($l1 / 2);
+		$l1 -= $l2;
+		$sp0 = ' ' x $l1;
+		$sp1 = ' ' x $l2;
+		$title1 .= ' | ' . $tk;
+		$title2 .= ' | ' . $sp0 . $h . $sp1;
 	    }
-	    if ($div) {
-		for my $timestamp (keys %D) {
-		    $data{$timestamp}[$column] = [$format, $D{$timestamp}, $scale];
+	    $fmt .= ' |';
+	    for my $h (@h) {
+		$fmt .= $sp0 . ' %' . (length $h) . 's' . $sp1;
+		my ($name, $item, $scale, $format) = @{$what{$key}};
+		# get data for this host
+		my %D;
+		for my $kw (split(/\+/, $item)) {
+		    for my $data (@{ $dbh->selectall_arrayref($data_handle, {},
+				     @$run, $h, $name, $kw) })
+		    {
+			my ($timestamp, $value) = @$data;
+			defined $D{$timestamp} or $D{$timestamp} = 0;
+			$D{$timestamp} += $value;
+		    }
 		}
-	    } else {
-		for my $timestamp (keys %D) {
-		    $data{$timestamp}[$column] = sprintf $format, $D{$timestamp} * $scale;
-		}
-	    }
-	    $column++;
-	}
-    }
-    $fmt .= "\n";
-    print "$title1\n$title2\n";
-    my $nc = 0;
-    my $prev = 0;
-    my $timebase = undef;
-    for my $timestamp (sort { $a <=> $b } keys %data) {
-	defined $timebase or $timebase = $timestamp;
-	for my $t (values %start) {
-	    $t > $prev && $t <= $timestamp and $nc++;
-	}
-	for my $t (values %end) {
-	    $t >= $prev && $t < $timestamp and $nc--;
-	}
-	my @prn = ($timestamp - $timebase, $nc);
-	my $has_values = 0;
-	for (my $i = 0; $i < $column; $i++) {
-	    my $d = $data{$timestamp}[$i];
-	    if (! defined $d) {
-		$d = '';
-	    } elsif (ref $d) {
-		if ($nc > 0) {
-		    my ($format, $value, $scale) = @$d;
-		    $d = sprintf $format, $value * $scale / $nc;
+		if ($div) {
+		    for my $timestamp (keys %D) {
+			$data{$timestamp}[$column] = [$format, $D{$timestamp}, $scale];
+		    }
 		} else {
-		    $d = '';
+		    for my $timestamp (keys %D) {
+			$data{$timestamp}[$column] = sprintf $format, $D{$timestamp} * $scale;
+		    }
 		}
+		$column++;
 	    }
-	    push @prn, $d;
-	    $d ne '' and $has_values = 1;
 	}
-	$has_values or next;
-	printf $fmt, @prn;
-	$prev = $timestamp;
+	$fmt .= "\n";
+	print "$title1\n$title2\n";
+	my $nc = 0;
+	my $prev = 0;
+	my $timebase = undef;
+	for my $timestamp (sort { $a <=> $b } keys %data) {
+	    defined $timebase or $timebase = $timestamp;
+	    for my $t (values %start) {
+		$t > $prev && $t <= $timestamp and $nc++;
+	    }
+	    for my $t (values %end) {
+		$t >= $prev && $t < $timestamp and $nc--;
+	    }
+	    my @prn = ($timestamp - $timebase, $nc);
+	    my $has_values = 0;
+	    for (my $i = 0; $i < $column; $i++) {
+		my $d = $data{$timestamp}[$i];
+		if (! defined $d) {
+		    $d = '';
+		} elsif (ref $d) {
+		    if ($nc > 0) {
+			my ($format, $value, $scale) = @$d;
+			$d = sprintf $format, $value * $scale / $nc;
+		    } else {
+			$d = '';
+		    }
+		}
+		push @prn, $d;
+		$d ne '' and $has_values = 1;
+	    }
+	    $has_values or next;
+	    printf $fmt, @prn;
+	    $prev = $timestamp;
+	}
+	print "\n";
     }
-    print "\n";
+    if ($count) {
+	$topology =~ s/[^\d]+$//;
+	defined $count{$topology}{$experiment}{$schedule}{$datasize}
+	    or $count{$topology}{$experiment}{$schedule}{$datasize} = 0;
+	$count{$topology}{$experiment}{$schedule}{$datasize}++;
+    }
 }
 
 $dbh->disconnect();
+
+if ($count) {
+    for my $topology (sort { $a cmp $b } keys %count) {
+	for my $experiment (sort { $a cmp $b } keys %{$count{$topology}}) {
+	    for my $schedule (sort { $a cmp $b } keys %{$count{$topology}{$experiment}}) {
+		for my $datasize (sort { $a <=> $b } keys %{$count{$topology}{$experiment}{$schedule}}) {
+		    printf "%3d: %-10s %-10s %-10s %5d\n",
+			   $count{$topology}{$experiment}{$schedule}{$datasize},
+			   $topology, $experiment, $schedule, $datasize;
+		}
+	    }
+	}
+    }
+}
 
 sub fmt_time {
     my ($ts) = @_;

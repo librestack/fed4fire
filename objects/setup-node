@@ -18,6 +18,12 @@ sudo cp -a /tmp/experiment/mcast???? /usr/local/bin/
 sudo cp -a /tmp/experiment/librecast* /usr/local/include/
 sudo ldconfig
 
+# update host table to have more useful list of nodes than the
+# one we get from the testbed
+egrep -v '^192\.168\.|^fd' /etc/hosts > /tmp/hosts
+cat /tmp/experiment/hosts >> /tmp/hosts
+sudo cp /tmp/hosts /etc/hosts
+
 # find all IP addresses this node needs, and on which interfaces
 code=0
 > /tmp/interface
@@ -40,6 +46,8 @@ do
     # this seem to be required to make network actually be up
     ping -c1 -n -W1 "$ipv4" > /dev/null 2>&1
     ping -c1 -n -W1 "$ipv6" > /dev/null 2>&1
+    ping -c1 -n -W1 -6 director0 > /dev/null 2>&1
+    ping -c1 -n -W1 -6 server0 > /dev/null 2>&1
     echo "$interface" >> /tmp/interface
     [ "$type" = router ] || continue
     sudo sysctl -w "net.ipv4.conf.$interface.forwarding=1"
@@ -55,11 +63,6 @@ do
     af="${what#RTE}"
     sudo ip -$af route add "$rto" via "$via"
 done < /tmp/experiment/setup-data
-
-# update host table
-egrep -v '^192\.168\.|^fd' /etc/hosts > /tmp/hosts
-cat /tmp/experiment/hosts >> /tmp/hosts
-sudo cp /tmp/hosts /etc/hosts
 
 exit $code
 

@@ -2,5 +2,5 @@
 
 # run pim6sd
 
-exec sudo pim6sd -f /tmp/pim6sd.conf -n >/dev/null 2>&1
+exec sudo pim6sd -f /tmp/pim6sd.conf -n >"$logfile" 2>&1
 

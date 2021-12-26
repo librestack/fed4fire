@@ -5,7 +5,7 @@ use strict;
 @ARGV >= 2 or die "Usage: $0 EXP_NAME [DIR] NODE [PROGRAM_TO_RUN]\n";
 my $EXP = shift @ARGV;
 my $NODE = shift @ARGV;
-my $DIR = "/tmp";
+my $DIR = "/var/tmp";
 if ($NODE =~ m|^/|) {
     @ARGV >= 1 or die "Usage: $0 EXP_NAME [DIR] NODE [PROGRAM_TO_RUN]\n";
     $DIR = $NODE;

@@ -29,8 +29,8 @@ do
 	    # make sure the 1-minute load average on all nodes is back to its
 	    # baseline value (probably 0) before we start this experiment
 	    sleep 60
-	    rm -r /tmp/results >/dev/null 2>&1
-	    mkdir /tmp/results
+	    rm -r /tmp/results /tmp/logs >/dev/null 2>&1
+	    mkdir /tmp/results /tmp/logs
 	    echo "Running experiment=$experiment schedule=$schedule size=$size"
 	    # start the experiment
 	    while read what type number host port user
@@ -53,13 +53,26 @@ do
 		do
 		    [ "$what" = NODE ] || continue
 		    [ "$type" = client ] || continue
-		    [ -f "/tmp/results/$type$number.$experiment.$schedule.$size" ] && \
+		    if [ -f "/tmp/results/$type$number.$experiment.$schedule.$size" ]
+		    then
+			if eval \$prn$number
+			then
+			    eval prn$number=false
+			    echo "OK $type $number"
+			fi
 			continue
-		    $prn && echo "Waiting for $type $number..."
+		    fi
+		    if $prn
+		    then
+			echo "Waiting for $type $number..."
+			eval prn$number=true
+		    fi
 		    waiting=true
 		done < /tmp/experiment/setup-data
 		prn=false
 	    done
+	    # make sure the last scp finishes
+	    sleep 2
 	    echo "Stopping experiment"
 	    while read what type number host port user
 	    do
@@ -86,16 +99,22 @@ do
 		done < /tmp/experiment/setup-data
 		prn=false
 	    done
-	    # create result tarball
+	    # make sure the last scp finishes
+	    sleep 2
+	    # create result tarballs and copy them to server
 	    echo "Copying results to server"
 	    tarball="/tmp/$exp-$experiment-$schedule-$size-`date +%Y%m%d%H%M%S`.tar.gz"
 	    tar czf "$tarball" -C /tmp/results .
-	    # copy tarball back to server
 	    scp -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
 		-P722 "$tarball" jfed@f4fresults.w42.org:results/
-	    # clean up
-	    rm -r /tmp/results
 	    rm "$tarball"
+	    tar czf "$tarball" -C /tmp/logs .
+	    scp -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
+		-P722 "$tarball" jfed@f4fresults.w42.org:logs/
+	    rm "$tarball"
+	    # clean up
+	    rm -r /tmp/results /tmp/logs
+	    echo
 	done
     done
 done < /tmp/experiment/sizes

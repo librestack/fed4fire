@@ -1,4 +1,4 @@
 #!/bin/sh
 
-exec iotup client tcp /tmp/datafile "$2"
+exec iotup client tcp /tmp/datafile "$2" >"$logfile" 2>&1
 

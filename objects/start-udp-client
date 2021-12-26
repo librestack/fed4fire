@@ -1,0 +1,4 @@
+#!/bin/sh
+
+exec iotup client udp /tmp/datafile "$2" >"$logfile" 2>&1
+

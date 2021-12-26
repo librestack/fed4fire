@@ -4,7 +4,7 @@ use strict;
 use FindBin '$Bin';
 
 @ARGV == 2 || @ARGV == 3 or die "Usage: $0 SIZES EXP_NAME [BASE_DIR]\n";
-my ($SIZES, $EXP, $DIR) = (@ARGV, '/tmp');
+my ($SIZES, $EXP, $DIR) = (@ARGV, '/var/tmp');
 
 my %ansible_nodes;
 my $hf = "$DIR/$EXP/ansible/ansible-hosts";
@@ -82,7 +82,17 @@ open(SD, '>', "$DIR/$EXP/setup-data.tmp") or die "$DIR/$EXP/setup-data.tmp: $!\n
 open(HD, '>', "$DIR/$EXP/hosts.tmp") or die "$DIR/$EXP/hosts.tmp: $!\n";
 print SD "NAME $EXP:$boot\n" or die "$DIR/$EXP/setup-data.tmp: $!\n";
 $hslen += 4;
-for my $node (sort keys %our_nodes) {
+# The setup-data file determines the order the director does things,
+# in particular setting up we want them in the order: director,
+# server#, router# and client#; moreover, routers need to be set
+# up in reverse order so that the first router set up is the one
+# talking to servers and director directly
+my @our_nodes;
+push @our_nodes, nodesort(grep { /^director/ } keys %our_nodes);
+push @our_nodes, nodesort(grep { /^server/ } keys %our_nodes);
+push @our_nodes, nodesort_r(grep { /^router/ } keys %our_nodes);
+push @our_nodes, nodesort(grep { /^client/ } keys %our_nodes);
+for my $node (@our_nodes) {
     my ($type, $number, $h, $p, $u, $hs) = @{$ansible_nodes{$node}};
     print SD "NODE $type $number $h $p $u\n"
 	or die "$DIR/$EXP/setup-data.tmp: $!\n";
@@ -175,5 +185,17 @@ sub update_file {
     }
     rename("$DIR/$EXP/$name.tmp", "$DIR/$EXP/$name")
 	or die "rename($DIR/$EXP/$name.tmp, $DIR/$EXP/$name): $!\n";
+}
+
+sub nodesort {
+    my @items = @_;
+    my %items = map { ($_, /\D(\d+)$/ ? $1 : 0) } @items;
+    sort { $items{$a} <=> $items{$b} } @items;
+}
+
+sub nodesort_r {
+    my @items = @_;
+    my %items = map { ($_, /\D(\d+)$/ ? $1 : 0) } @items;
+    sort { $items{$b} <=> $items{$a} } @items;
 }
 
