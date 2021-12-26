@@ -65,12 +65,24 @@ rm -r /tmp/results /tmp/logs >/dev/null 2>&1
 mkdir /tmp/results /tmp/logs
 lwmon -c /tmp/lwmon-config
 
-# copy the results back to director
+# copy the results back to director -- which seems to be unable to cope
+# with too many incoming connections, hence the loop and retries
 director="`awk '/^ADDR director/ { print $NF; exit }' /tmp/experiment/setup-data`"
-[ -f "$logfile" ] && \
-    scp -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
-	"$logfile" "[$director]:/tmp/logs/"
-scp -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
-    /tmp/results/* "[$director]:/tmp/results/"
+if [ -f "$logfile" ]
+then
+    for n in 1 2 3 4 5 6 7 8
+    do
+	sleep 1
+	rsync -aqHPe 'ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa' \
+	    "$logfile" "[$director]:/tmp/logs/" && break
+    done
+fi
+
+for n in 1 2 3 4 5 6 7 8
+do
+    sleep 1
+    rsync -aqHPe 'ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa' \
+	--omit-dir-times /tmp/results/ "[$director]:/tmp/results/" && break
+done
 rm -r /tmp/results /tmp/logs >/dev/null 2>&1
 

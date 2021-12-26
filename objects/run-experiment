@@ -72,7 +72,8 @@ do
 		prn=false
 	    done
 	    # make sure the last scp finishes
-	    sleep 2
+	    echo Waiting to make sure all rsyncs completed
+	    sleep 4
 	    echo "Stopping experiment"
 	    while read what type number host port user
 	    do
@@ -100,7 +101,8 @@ do
 		prn=false
 	    done
 	    # make sure the last scp finishes
-	    sleep 2
+	    echo Waiting to make sure all rsyncs completed
+	    sleep 4
 	    # create result tarballs and copy them to server
 	    echo "Copying results to server"
 	    tarball="/tmp/$exp-$experiment-$schedule-$size-`date +%Y%m%d%H%M%S`.tar.gz"
