@@ -1,0 +1,183 @@
+# Software Used
+
+All test transfers were performed over IPv6.  No IPv4 tests were conducted as
+this legacy protocol has no place in a Next Generation Internet.
+
+All test programs used IPv6 and all were written in the C language.  The test
+servers ran the Ubuntu Server 20.04 LTS distribution of the GNU/Linux Operating
+System.  No special tuning or configuration was applied.
+
+The three test protocols have some fundamental differences that require
+different treatment of each. For each protocol we have endeavoured to choose a
+simple implementation that is appropriate to each.
+
+Four file transfer methods were tested:
+
+## scp (Secure Copy)
+
+`scp` is not suitable for a direct comparison between unicast and multicast due
+to its complexity and the fact it uses encryption by default.  However, as scp
+is a very common program with a long history, so we included this as a reference
+point.  Due to the extra overhead of encryption we would expect it to be
+slightly slower than the unencrypted TCP method, and to use more server
+resources.
+
+## TCP
+
+Transmisson Control Protocol (TCP). TCP provides a reliable stream protocol on
+top of the underlying connectionless and unreliable IP network.  TCP
+automatically deals with flow control, packet ordering and packet loss detection
+and retransmission at the network layer.  This adds some overhead, but means
+that the program does not need to deal with any of these at the application
+layer.
+
+The test TCP server was a very simple forking TCP socket server, which accept()s
+a connection from the TCP client, sending a stream of data to the connected
+client:
+
+
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-------------------------------+-------------------------------+
+| size (64 bits)                                                |
+|                                                               |
++---------------------------------------------------------------+
+| BLAKE2S hash (256 bits)                                       |
+|                                                               |
+|                                                               |
+|                                                               |
++---------------------------------------------------------------+
+| data stream ...                                               |
+|                                                               |
+
+The TCP client connect()s to the server, reads the 64 bit length, and creates a
+memory-mapped file of that size.
+
+1. connect to server
+2. read length
+3. read BLAKE2S checksum hash
+4. create memory mapped file of length
+5. read data stream until EOF (server disconnect), writing each chunk to the memory map
+6. check the server supplied hash matches the hash of the data written to disk.
+7. if the checksum does not match, repeat from step 1.
+
+TCP deals with error checking, packet loss and retransmission at the network
+layer, so the application does not need to handle this itself.
+
+## UDP
+
+User Datagram Protocol (UDP) is an unreliable, connectionless protocol.  It has
+lower overhead than TCP, but packets may be lost, duplicated or arrive out of
+order.  These issues need to be dealt with at the application layer.  This is
+true for both unicast and multicast.
+
+In the case of a file transfer, packets arriving out of order is not an issue.
+Each packet has an offset field that indicates where in the file that data
+belongs.  Packet loss does, however, need to be handled.
+
+
+RFC 2460 states that IPv6 links must support a minimum MTU (Maximum Transmission
+Unit) size of 1280 bytes.  Both the unicast and multicast UDP programs use the
+same packet structure:
+
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-------------------------------+-------------------------------+
+| sequence (16 bits)            | length (16 bits)              |
++---------------------------------------------------------------+
+| size (64 bits)                                                |
+|                                                               |
++---------------------------------------------------------------+
+| offset (64 bits)                                              |
+|                                                               |
++---------------------------------------------------------------+
+| hash (256 bits)                                               |
+|                                                               |
+|                                                               |
+|                                                               |
++---------------------------------------------------------------+
+| payload data (1194 bytes)                                     |
+
+...
+
++---------------------------------------------------------------+
+(total 1230 bytes)
+
+As we cannot rely on the network layer to deliver packets in order the length of
+each payload as well as the offset of that data from the beginning of the file
+is included with each datagram, along with the BLAKE2S hash and full size of the
+file.  Also included is a sequence number, which is used by the multicast
+program to check for packet loss.
+
+
+### Unicast
+
+The unicast UDP server listens on a socket for datagram requests.  The server,
+upon receiving a request, fork()s a child process which sends a sequence of
+datagrams corresponding to the request back to the client address before
+exiting.
+
+A request datagram has the following structure:
+
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-------------------------------+-------------------------------+
+| offset (64 bits)                                              |
+|                                                               |
++---------------------------------------------------------------+
+| length (64 bits)                                              |
+|                                                               |
++---------------------------------------------------------------+
+(total 16 bytes)
+
+where offset is the start of the data requested (0 for the start of the file)
+and length is the length of the data requested.  A length of 0 indicates that
+the whole file from the offset is requested.
+
+An initial request datagram is sent by the client to the server with both fields
+set to 0 to request the whole file.
+
+The client sets a timer for 2s. If no data is received from the server before
+this timeout, another request is sent.  Each time data is received from the
+server the timer is reset.
+
+When the client receives the first data response from the server it creates a
+memory-mapped file of size bytes, and also a bitmap representing the datagrams
+required.
+
+When a response datagram is received from the server, the bitmap is checked to
+see if the client already has that chunk and if not the payload is copied to the
+offset in the file and the corresponding bit in the bitmap is cleared.
+
+If the server stops sending data before the full file is received, the client
+checks for missing data "holes" and sends a request to the server for each.
+
+When all data is received, the client checks the hash of the data received
+against the server-provided hash.  If the checksum does not match, another
+request is sent to the server.
+
+
+### Multicast
+
+For this experiment we used a very simple loop and repeat server.  The multicast
+server receives no inbound requests.  If simply sends the file to IPv6
+multicast group(s) continuously on a loop.  MLD Snooping could be used to detect if
+any nodes are listening to the group, but that did not form part of this
+experiment.
+
+The client node joins the multicast group(s) and immediately begins receiving
+the file.  When the first datagram is received, the client creates a
+memory-mapped file of the appropriate size and begins writing each datagram at
+the appropriate offset in the file.  When enough data has been received, the
+client starts a checksumming thread to verify the data on disk matches the
+expected checksum.  If it does, the client parts the multicast groups and exits.
+If the checksum does not match, the client continues receiving and writing data
+until it does.  Data payloads received are compared to the data on disk before
+copying and only different data is written or counted towards received data.
+
+The IoT Updater can interleave data sent across multiple multicast groups, and
+use the sequence numbers in packets to detect packet loss.  If packet loss is
+due to congestion, the client can join fewer groups to lower the received data
+rate.  This can function as a basic form of flow control.  This function was not
+used during the experiments - the client and server were set to use only a
+single multicast group.
