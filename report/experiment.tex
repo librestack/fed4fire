@@ -232,6 +232,7 @@ The resource monitoring daemon records the following data every second:
 
 \begin{itemize}
 \item 1-minute load average as provided by the system
+\item user and system CPU time used by the whole systemin the last second
 \item memory and swap use
 \item bytes sent and received on the network interface used to
 transfer the update data
@@ -687,13 +688,12 @@ impact on the system.  It can also report on its own resource usage,
 so one can confirm that it is, indeed, light-weight.
 
 Without going into complete details, each node sets up its own
-configuration for lwmon, which then monitors memory usage and
-system load every second, its own resource usage every 10
-seconds.  The appropriate program (update provider for servers,
-routing daemon for routers if requires by the experiment, and
-the program which gets the updates for clients) also runs as
-a child process of lwmon, so the latter can report on the resource
-used by this program.
+configuration for lwmon, which then measures memory, swap, cpu and
+network usage and system load every second, its own resource usage every
+10 seconds.  The appropriate program (update provider for servers, routing
+daemon for routers if requires by the experiment, and the program which
+gets the updates for clients) also runs as a child process of lwmon,
+so the latter can report on the resource used by this program.
 
 A lwmon configuration for a client looks like:
 
@@ -701,6 +701,7 @@ A lwmon configuration for a client looks like:
 hostname client2
 
 load lavg 1
+cpu cpu 1
 memory memswap 1
 network if1 1 enp6s0
 self self 2
@@ -736,6 +737,7 @@ replaced by ``server'', and for a router it is very similar:
 hostname router0
 
 load lavg 1
+cpu cpu 1
 memory memswap 1
 network if1 1 enp4s0
 network if2 1 enp6s0
@@ -817,7 +819,12 @@ experiment results in a format suitable for further analysis.
   TODO: iotupd paper
 
 \bibitem{iotupd:sources}
-  TODO: iotupd sources
+  {\em Multicast IoT Update Client and Server}.\\
+  \url{https://github.com/librestack/iotupd}
+
+\bibitem{unisync:sources}
+  {\em Unicast (TCP/UDP) file syncing test program}.\\
+  \url{https://github.com/librestack/unisync}
 
 \end{sloppypar}
 \end{thebibliography}
