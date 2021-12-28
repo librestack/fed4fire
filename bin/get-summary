@@ -9,7 +9,7 @@ my $database = shift @ARGV;
 my $dbh = DBI->connect("dbi:SQLite:dbname=$database", '', '',
 		       { RaiseError => 1, ReadOnly => 1 });
 
-my (%type, %experiment, %schedule, %data, $all_data, %topology, $all_topologies, %sizes);
+my (%type, %experiment, %schedule, %data, @data, $all_data, %topology, $all_topologies, %sizes);
 while (@ARGV) {
     my $cmd = shift @ARGV;
     if ($cmd =~ /^(?:client|router|server)$/i) {
@@ -36,7 +36,7 @@ while (@ARGV) {
 	$schedule{$_} = 1 for qw(immediate random);
 	next;
     }
-    if ($cmd =~ /^S\d+(?:R\d+)L\d+$/) {
+    if ($cmd =~ /^S\d+(?:R\d+)?L\d+$/) {
 	$topology{$cmd} = 1;
 	next;
     }
@@ -56,7 +56,10 @@ while (@ARGV) {
 	$all_data = 1;
 	next;
     }
+    $cmd = lc $cmd;
+    exists $data{$cmd} and next;
     $data{lc $cmd} = 1;
+    push @data, $cmd;
 }
 keys %type or die "No host types requested\n";
 keys %experiment or die "No experiment types selected\n";
@@ -65,17 +68,43 @@ keys %sizes or die "No sizes selected\n";
 
 if ($all_data) {
     for my $dp (@{ $dbh->selectall_arrayref('SELECT key FROM lwmon_summary GROUP BY key;') }) {
-	$data{$dp->[0]} = 1;
+	my $cmd = lc $dp->[0];
+	exists $data{$cmd} and next;
+	$data{lc $cmd} = 1;
+	push @data, $cmd;
     }
 }
-keys %data or die "No data requested\n";
+@data or die "No data requested\n";
+
+my %fmt = (
+    rx      => '%.2f',
+    rx2     => '%.2f',
+    tx      => '%.2f',
+    tx2     => '%.2f',
+    syscpu  => '%.3f',
+    totcpu  => '%.3f',
+    usercpu => '%.3f',
+);
+
+my %scale = (
+    rx      => 1e-3,
+    rx2     => 1e-3,
+    tx      => 1e-3,
+    tx2     => 1e-3,
+);
+
+my %unit = (
+    rx      => 'MB',
+    rx2     => 'MB',
+    tx      => 'MB',
+    tx2     => 'MB',
+);
 
 if ($all_topologies) {
     for my $tp (@{ $dbh->selectall_arrayref('SELECT topology FROM lwmon_summary GROUP BY topology;') }) {
 	$topology{$tp->[0]} = 1;
     }
 }
-
 if (keys %topology) {
     my $rdata = $dbh->prepare(<<EOF);
 SELECT n_clients, total / count
@@ -93,9 +122,7 @@ EOF
 	    for my $schedule (sort keys %schedule) {
 		for my $size (sort keys %sizes) {
 		    for my $type (sort keys %type) {
-			for my $data (sort keys %data) {
-			    run_data($rdata, $experiment, $schedule, $size, $type, $topology, $data);
-			}
+			show_data($rdata, $experiment, $schedule, $size, $type, $topology);
 		    }
 		}
 	    }
@@ -117,7 +144,7 @@ EOF
 	for my $schedule (sort keys %schedule) {
 	    for my $size (sort keys %sizes) {
 		for my $type (sort keys %type) {
-		    for my $data (sort keys %data) {
+		    for my $data (@data) {
 			run_data($rdata, $experiment, $schedule, $size, $type, $data);
 		    }
 		}
@@ -127,6 +154,49 @@ EOF
 }
 
 $dbh->disconnect();
+
+sub show_data {
+    my ($handle, @parms) = @_;
+    my $title = join(' ', @parms) . "\nn_clients";
+    my @values;
+    my @space;
+    my $max_clients = -1;
+    for my $data (@data) {
+	my $prndata = $data;
+	exists $unit{$data} and $prndata .= "($unit{$data})";
+	my $len = length $prndata;
+	my @column;
+	for my $dp (@{ $dbh->selectall_arrayref($handle, {}, @parms, $data) }) {
+	    my ($nc, $num) = @$dp;
+	    defined $num or next;
+	    $max_clients < $nc and $max_clients = $nc;
+	    exists $scale{$data} and $num *= $scale{$data};
+	    exists $fmt{$data} and $num = sprintf $fmt{$data}, $num;
+	    $len < length $num and $len = length $num;
+	    $column[$nc] = $num;
+	}
+	push @values, \@column;
+	$len += 2;
+	push @space, $len;
+	$title .= sprintf "%${len}s", $prndata;
+    }
+    $max_clients >= 0 or next;
+    print $title, "\n";
+    for (my $i = 0; $i <= $max_clients; $i++) {
+	my $row = sprintf '%9d', $i;
+	my $has_data = 0;
+	for (my $j = 0; $j < @space; $j++) {
+	    if (defined $values[$j][$i]) {
+		$has_data = 1;
+		$row .= sprintf "%$space[$j]s", $values[$j][$i];
+	    } else {
+		$row .= ' ' x $space[$j];
+	    }
+	}
+	$has_data and print $row, "\n";
+    }
+    print "\n";
+}
 
 sub run_data {
     my ($handle, @data) = @_;
