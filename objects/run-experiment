@@ -18,6 +18,7 @@ do
 	[ "$type" = server ] || continue
 	rsync -avHPe "$ssh -p$port" /tmp/datafile $user@$host:/tmp/datafile < /dev/null
     done < /tmp/experiment/setup-data
+    echo
     ls /tmp/experiment | \
 	awk -F- '$1 == "start" && NF > 1 {print $2}' | \
 	sort -u | \
@@ -26,11 +27,17 @@ do
 	for schedule in /tmp/experiment/schedule-*
 	do
 	    schedule="${schedule##*schedule-}"
+	    if [ -f /tmp/only-run ]
+	    then
+		grep -q "^$experiment\\.$schedule\$" /tmp/only-run || continue;
+	    fi
 	    # make sure the 1-minute load average on all nodes is back to its
 	    # baseline value (probably 0) before we start this experiment
+	    echo "Sleeping 60 seconds to let load average return to baseline level"
 	    sleep 60
 	    rm -r /tmp/results /tmp/logs >/dev/null 2>&1
 	    mkdir /tmp/results /tmp/logs
+	    echo
 	    echo "Running experiment=$experiment schedule=$schedule size=$size"
 	    # start the experiment
 	    while read what type number host port user
@@ -42,36 +49,43 @@ do
 		    "$type" "$number" "$size" &
 	    done < /tmp/experiment/setup-data
 	    # wait for all clients to report completion
+	    echo "$experiment $schedule $size" > /tmp/current-experiment
 	    echo "Experiment started, waiting for client results"
-	    waiting=true
-	    prn=true
-	    while $waiting
+	    previous=''
+	    while true
 	    do
-		waiting=false
 		sleep 2
+		ok=''
+		waiting=''
 		while read what type number host port user
 		do
 		    [ "$what" = NODE ] || continue
 		    [ "$type" = client ] || continue
 		    if [ -f "/tmp/results/$type$number.$experiment.$schedule.$size" ]
 		    then
-			if eval \$prn$number
-			then
-			    eval prn$number=false
-			    echo "OK $type $number"
-			fi
-			continue
+			ok="$ok $number"
+		    else
+			waiting="$waiting $number"
 		    fi
-		    if $prn
-		    then
-			echo "Waiting for $type $number..."
-			eval prn$number=true
-		    fi
-		    waiting=true
 		done < /tmp/experiment/setup-data
-		prn=false
+		if [ ".$waiting" = . ]
+		then
+		    echo 'All client results received'
+		    break
+		fi
+		if [ ".$ok" = . ]
+		then
+		    message="WAIT:$waiting"
+		else
+		    message="OK:$ok; WAIT:$waiting"
+		fi
+		if [ ".$previous" != ".$message" ]
+		then
+		    echo "$message"
+		    previous="$message"
+		fi
 	    done
-	    # make sure the last scp finishes
+	    # make sure all copies are complete, not just started
 	    echo Waiting to make sure all rsyncs completed
 	    sleep 4
 	    echo "Stopping experiment"
@@ -83,24 +97,42 @@ do
 		$sshrun "/tmp/experiment/stop-$experiment-$type"
 	    done < /tmp/experiment/setup-data
 	    echo "Experiment stopped, waiting for server/router results"
-	    waiting=true
-	    prn=true
-	    while $waiting
+	    previous=''
+	    while true
 	    do
-		waiting=false
 		sleep 2
+		ok=''
+		waiting=''
 		while read what type number host port user
 		do
 		    [ "$what" = NODE ] || continue
+		    [ "$type" = client ] && continue
 		    [ "$type" = director ] && continue
-		    [ -f "/tmp/results/$type$number.$experiment.$schedule.$size" ] && \
-			continue
-		    $prn && echo "Waiting for $type $number..."
-		    waiting=true
+		    if [ -f "/tmp/results/$type$number.$experiment.$schedule.$size" ]
+		    then
+			ok="$ok $type$number"
+		    else
+			waiting="$waiting $type$number"
+		    fi
 		done < /tmp/experiment/setup-data
-		prn=false
+		if [ ".$waiting" = . ]
+		then
+		    echo 'All results received'
+		    break
+		fi
+		if [ ".$ok" = . ]
+		then
+		    message="WAIT:$waiting"
+		else
+		    message="OK:$ok; WAIT:$waiting"
+		fi
+		if [ ".$previous" != ".$message" ]
+		then
+		    echo "$message"
+		    previous="$message"
+		fi
 	    done
-	    # make sure the last scp finishes
+	    # make sure all copies are complete, not just started
 	    echo Waiting to make sure all rsyncs completed
 	    sleep 4
 	    # create result tarballs and copy them to server
@@ -116,7 +148,6 @@ do
 	    rm "$tarball"
 	    # clean up
 	    rm -r /tmp/results /tmp/logs
-	    echo
 	done
     done
 done < /tmp/experiment/sizes
