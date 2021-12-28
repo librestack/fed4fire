@@ -5,10 +5,15 @@ ssh='ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa'
 # figure out experiment name
 exp="`awk '/^NAME/ { print $2}' /tmp/experiment/setup-data`"
 
+# like echo, but with timestamps
+msg() {
+    echo "`TZ=GMT date +%H:%M:%S`  $*"
+}
+
 # run an experiment for each requested size
 while read size
 do
-    echo "Running experiments, size=$size"
+    msg "Running experiments, size=$size"
     # we need the file to be identical on all servers,
     # so we make one up here and copy to all servers
     dd if=/dev/urandom bs=1048576 count=$size of=/tmp/datafile || continue
@@ -33,12 +38,12 @@ do
 	    fi
 	    # make sure the 1-minute load average on all nodes is back to its
 	    # baseline value (probably 0) before we start this experiment
-	    echo "Sleeping 60 seconds to let load average return to baseline level"
+	    msg "Sleeping 60 seconds to let load average return to baseline level"
 	    sleep 60
 	    rm -r /tmp/results /tmp/logs >/dev/null 2>&1
 	    mkdir /tmp/results /tmp/logs
 	    echo
-	    echo "Running experiment=$experiment schedule=$schedule size=$size"
+	    msg "Running experiment=$experiment schedule=$schedule size=$size"
 	    # start the experiment
 	    while read what type number host port user
 	    do
@@ -50,11 +55,10 @@ do
 	    done < /tmp/experiment/setup-data
 	    # wait for all clients to report completion
 	    echo "$experiment $schedule $size" > /tmp/current-experiment
-	    echo "Experiment started, waiting for client results"
+	    msg "Experiment started, waiting for client results"
 	    previous=''
 	    while true
 	    do
-		sleep 2
 		ok=''
 		waiting=''
 		while read what type number host port user
@@ -70,25 +74,26 @@ do
 		done < /tmp/experiment/setup-data
 		if [ ".$waiting" = . ]
 		then
-		    echo 'All client results received'
+		    msg 'All client results received'
 		    break
 		fi
 		if [ ".$ok" = . ]
 		then
 		    message="WAIT:$waiting"
 		else
-		    message="OK:$ok; WAIT:$waiting"
+		    message="OK:$ok --- WAIT:$waiting"
 		fi
 		if [ ".$previous" != ".$message" ]
 		then
-		    echo "$message"
+		    msg "$message"
 		    previous="$message"
 		fi
+		sleep 2
 	    done
 	    # make sure all copies are complete, not just started
-	    echo Waiting to make sure all rsyncs completed
+	    msg Waiting to make sure all rsyncs completed
 	    sleep 4
-	    echo "Stopping experiment"
+	    msg "Stopping experiment"
 	    while read what type number host port user
 	    do
 		[ "$what" = NODE ] || continue
@@ -96,11 +101,10 @@ do
 		sshrun="$ssh -p$port $user@$host -n"
 		$sshrun "/tmp/experiment/stop-$experiment-$type"
 	    done < /tmp/experiment/setup-data
-	    echo "Experiment stopped, waiting for server/router results"
+	    msg "Experiment stopped, waiting for server/router results"
 	    previous=''
 	    while true
 	    do
-		sleep 2
 		ok=''
 		waiting=''
 		while read what type number host port user
@@ -117,7 +121,7 @@ do
 		done < /tmp/experiment/setup-data
 		if [ ".$waiting" = . ]
 		then
-		    echo 'All results received'
+		    msg 'All results received'
 		    break
 		fi
 		if [ ".$ok" = . ]
@@ -128,15 +132,16 @@ do
 		fi
 		if [ ".$previous" != ".$message" ]
 		then
-		    echo "$message"
+		    msg "$message"
 		    previous="$message"
 		fi
+		sleep 2
 	    done
 	    # make sure all copies are complete, not just started
-	    echo Waiting to make sure all rsyncs completed
+	    msg Waiting to make sure all rsyncs completed
 	    sleep 4
 	    # create result tarballs and copy them to server
-	    echo "Copying results to server"
+	    msg "Copying results to server"
 	    tarball="/tmp/$exp-$experiment-$schedule-$size-`date +%Y%m%d%H%M%S`.tar.gz"
 	    tar czf "$tarball" -C /tmp/results .
 	    scp -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
