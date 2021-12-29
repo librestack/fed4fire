@@ -1,10 +1,10 @@
-\documentclass[a4paper,12pt]{article}
+\documentclass[a4paper,12pt,twocolumn]{article}
 
 \usepackage{ifpdf}
 
 \title{Comparing performance of IPv6 multicast and unicast for software updates}
 \author{Claudio Calvelli}
-\date{Draft 0.4 \today}
+\date{Draft 0.5 \today}
 
 \setlength{\unitlength}{0.01\linewidth}
 \def\topfaction{0.6}
@@ -19,13 +19,15 @@
 % everybody say to just include the hyperref package - it's big, ugly and
 % breaks the next command.  This on the other hand works just fine
 \ifpdf
-\newcommand{\url}[1]{%
+\newcommand{\longurl}[2]{%
 \pdfstartlink %
 attr {/Border [0 0 0]} %
 user {/Subtype /Link /A << /S /URI /URI (#1) >>}%
-{\tt #1}\pdfendlink}
+{\footnotesize\tt #2}\pdfendlink}
+\newcommand{\url}[1]{\longurl{#1}{#1}}
 \else
-\newcommand{\url}[1]{{\tt #1}}
+\newcommand{\url}[1]{{\footnotesize\tt #1}}
+\newcommand{\longurl}[2]{{\footnotesize\tt #1}}
 \fi
 
 \newcommand{\pref}[1]{%
@@ -50,7 +52,7 @@ technology to address the lack of multicast routing in many networks.
 \end{abstract}
 
 \section{Introduction}
-The very first paragraph of RFC 3170 states:
+The first paragraph of RFC 3170 states:
 
 \begin{quotation}
 \noindent
@@ -83,7 +85,7 @@ joining a multicast group and waiting for the data to arrive.
 \item Unicast using a UDP-based service: this is similar to the
 TCP case, but uses datagrams instead of virtual circuits: this
 mechanism is introduced because multicast is by necessity based
-on datagrams--there is no feedback from receiver to sender--and
+on datagrams: there is no feedback from receiver to sender, and
 we want to help determine which differences may be caused by
 unicast vs.\ multicast, and which ones by virtual circuits vs\.
 datagrams.
@@ -141,7 +143,7 @@ Appendix~\ref{programs} provides some more details about the various
 programs which ran as part of the experiment, and where to find the
 full sources of all these programs.
 
-\section{The ``LAN'' experiment}
+\section{``LAN'' experiment}
 \label{LAN:experiment}
 
 A number of clients (denoted by ${\cal C}$) request software updates
@@ -255,22 +257,72 @@ on the director, where possible we ran it many times on the same
 testbed, to have more experimental data without the extra overhead
 of setting up a new testbed.
 
+We ran three versions of this experiment, with 20 and 64 clients.  We
+have been unable to run a larger experiment as there were never sufficient
+resources available on the testbed, so we have been unable to show scale
+issues properly.
+
 \subsection{Update methods}
-The ``multicast'' experiment uses the ``IoT updater'' demonstration
-program~\cite{iotupd:paper} to copy a file from server to clients: on the server
-side ``iotupd'' runs a loop in which it sends the whole file to a specified
-multicast group, then repeats the sending until the end of the experimend.
-Each client runs ``iotupc'' which waits for the data to arrive on the
-specified group and saves it to a local file, stopping when the file checksum
-matches.  There is no feedback from client to server, and no mechanism for
-a client to require retransmission of missing data; however the client
-can just wait for the server to send it again. More details on the
-IoT updater can be found in appendix~\ref{iotupd} or in the source
-code~\cite{iotupd:sources}.
+The ``multicast'' method uses the ``IoT updater'' demonstration
+program~\cite{iotupd:paper} to copy a file from server to clients: on the
+server side ``iotupd'' calculates the file's checksum, then runs a loop in
+which it sends the whole file and the checksum to a specified multicast
+group, then repeats the sending until asked to stop at the end of the
+experimend.  Each client runs ``iotupc'' which waits for the data to
+arrive on the specified group and saves it to a local file, stopping when
+the file checksum matches.  There is no feedback from client to server,
+and no mechanism for a client to require retransmission of missing data;
+however the client can just wait for the server to send it again. More
+details on the IoT updater can be found in appendix~\ref{iotupd} or in
+the source code~\cite{iotupd:sources}.
 
-\TODO{describe the unicast update methods in more detail}
+The unicast ``scp'' method just uses the ``scp'' program (part of
+openssh) on each client to connect to the server and ask for a copy of
+the file: this allows us to show that the experiment setup is working
+with some well-known software; however the presence of encryption
+means that the results are not directly comparable with other experiments;
+a future experiment in which all methods use encryption will of course
+benefit from inclusion of this method.
 
-\section{The ``Two LANs'' experiment}
+The unicast ``tcp'' experiment is similar in concept to the ``scp'' one,
+but implemented with code as similar as possible to the multicast case
+to make comparisons more meaningful.  On the server side, the ``iotup''
+program (in TCP server mode) calculates the file checksum then waits for
+connections; it replies to each connection with the file checksum and
+the full file data, sent as a single TCP stream.  On the client side,
+the ``iotup'' program (in TCP client mode) connects to server, saves the
+file data, calculates the checksum and compares it with the one sent by
+the server; if the checksum match, the program exits with success, otherwise
+it retries the whole download. Because TCP already does its own verification,
+it is unlikely that the client will ever have to retry in this experiment
+when everything runs in the same building; however in a future larger and
+more distributed experiment we can expect to encounter network issues
+which will require retries from the client. The ``iotup'' program is
+described more fully in appendix~\ref{unisync} and its sources are available
+in~\cite{unisync:sources}.
+
+The unicast ``udp'' method is very similar to the ``tcp'' method,
+but uses UDP rather than TCP and that implies that retransmissions
+and duplicate detection need to be handled at the application level.
+On the server side, the ``iotup'' program (in UDP server mode) calculates
+the file checksum, then waits for requests coming in via UDP; these
+request specify a range of bytes to send, and the server replies with a
+sequence of UDP packets, each of which contain the same information as
+the packets sent using the ``multicast'' method.  Each client starts by
+requesting the whole file (specifying both start and end offsets as 0,
+which the server interprets as ``from 0 to end of file'') and waiting
+for data: if there is no reply within a pre-determined time, it will
+retry the request.  Once at least one packet arrives to the client,
+it will know the total data size and the file checksum, and will have
+part of the data.  The client will wait until all the expected data has
+arrived, or a timeout occurs in which no new packets have arrived for a
+pre-defined time.  The client will then decide whether any part of the
+file needs retransmitting and continue until it has received all the
+data it expects, and the file checksum matches.  The ``iotup'' program
+is described more fully in appendix~\ref{unisync} and its sources are
+available in~\cite{unisync:sources}.
+
+\section{``Two LANs'' experiment}
 \label{TWOLAN:experiment}
 
 Similar to the previous experiment, but we investigate the effect of a
@@ -280,7 +332,7 @@ are on the second LAN.  Like the previous experiments, the parameters are
 the number of clients ${\cal C}$, and the update size in bytes ${\cal N}$.
 
 Figure~\pref{s1:r1:c8}
-\begin{figure}[bpt]
+\begin{figure}[bp]
 \begin{center}
 \begin{picture}(90,38)
 \put(45,31){\makebox(0,0){\rm\bf S}}
@@ -319,7 +371,10 @@ fully set up.
 After that, the experiment proceeds identically with the director starting
 all clients and waiting for results.
 
-\section{The ``Generic'' experiment}
+We only ran a 20 clients version of this experiment, when there happened
+to be free resources for this but not for anything larger.
+
+\section{``Generic'' experiment}
 \label{GEN:experiment}
 
 An extension of the previous (``Two LANs'') experiment includes a longer
@@ -364,25 +419,19 @@ A couple of exampels will make this clearer: figure~\pref{s1:r3:l2}
 shows the network topology with ${\cal R} = 3$ and ${\cal L} = 2$,
 so that the 8 clients are organised in 4 separate LANs, with
 7 routers forming a tree structure with the server connected to
-the root of the tree. For comparison, figure~\pref{s1:r4:l1}
+the root of the tree. For comparison, figure~\pref{s1:r2:l4}
 \begin{figure}[bp]
 \begin{center}
-\begin{picture}(90,71)
-\put(45,64){\makebox(0,0){\rm\bf S}}
-\put(45,58){\line(0,1){3}}
-\put(45,55){\makebox(0,0){\rm\bf R}}
-\put(45,49){\line(0,1){3}}
-\put(25,49){\line(1,0){40}}
-\multiput(25,46)(40,0){2}{\line(0,1){3}}
-\multiput(25,43)(40,0){2}{\makebox(0,0){\rm\bf R}}
-\multiput(25,37)(40,0){2}{\line(0,1){3}}
-\multiput(15,37)(40,0){2}{\line(1,0){20}}
-\multiput(15,34)(20,0){4}{\line(0,1){3}}
-\multiput(15,31)(20,0){4}{\makebox(0,0){\rm\bf R}}
-\multiput(15,25)(20,0){4}{\line(0,1){3}}
-\multiput(10,25)(20,0){4}{\line(1,0){10}}
-\multiput(10,22)(10,0){8}{\line(0,1){3}}
-\multiput(10,19)(10,0){8}{\makebox(0,0){\rm\bf R}}
+\begin{picture}(90,50)
+\put(45,43){\makebox(0,0){\rm\bf S}}
+\put(45,37){\line(0,1){3}}
+\put(45,34){\makebox(0,0){\rm\bf R}}
+\put(45,28){\line(0,1){3}}
+\put(25,28){\line(1,0){40}}
+\multiput(25,25)(40,0){2}{\line(0,1){3}}
+\multiput(25,22)(40,0){2}{\makebox(0,0){\rm\bf R}}
+\multiput(25,16)(40,0){2}{\line(0,1){3}}
+\multiput(10,16)(40,0){2}{\line(1,0){30}}
 \multiput(10,13)(10,0){8}{\line(0,1){3}}
 \multiput(10,10)(10,0){8}{\makebox(0,0){\rm\bf C}}
 \end{picture}
@@ -394,32 +443,23 @@ the root of the tree. For comparison, figure~\pref{s1:r4:l1}
 \hspace*{\fill}%
 \mbox{{\bf C} = client}%
 \hspace*{\fill}
-\caption{Network with 8 clients, 1 client per LAN}
-\label{s1:r4:l1}
+\caption{Network with 8 clients, 4 client per LAN}
+\label{s1:r2:l4}
 \end{figure}
-shows the same number of clients arranged on 8 separate LANs
-(${\cal L} = 1$) so that there is an extra network hop between
-clients and servers (${\cal R} = 4$).
+shows the same number of clients arranged on 2 separate LANs
+(${\cal L} = 4$) so that there are only 2 routers between each
+client and the server (${\cal R} = 2$).
 
 This is still a simplified view of a real system, but allows to
 extend the previous experiments to different circumstances.  A
 future experiment might consider different networks.
 
-The last experimental parameters indicates the size of the software updates
-as the number ${\cal N}$ of bytes contained in it.  In the real world,
-clients may be more or less up-to-date so that each one may request a
-subset of all updates available; for this experiment we assume that
-all clients have all previous updates and are just requesting the latest
-one; a future experiment may consider some more complex ``real life''
-scenarios.
+The experiment proceeds almost identically to the ``Two LANs''
+experiment described above: there are more routers, but they are
+all set up in the same way as the single router on that experiment.
 
-Each experiment run will select a network topology (i.e.\ values
-for ${\cal R}$ and ${\cal L}$) and a list of update sizes
-${\cal N}$, set up the corresponding network on the experiment
-testbed, and proceed in the same way as the previous, ``Two LANs'',
-experiment.  While there are more routers in the network, all these
-routers do exactly the same as the single router in the previous
-experiment, so there is little difference in the actual running.
+We ran experiments corresponding to both examples shown in the figures,
+using 20 clients rather than 8.
 
 \section{Experiment results}
 \label{results}
@@ -427,10 +467,11 @@ experiment, so there is little difference in the actual running.
 \TODO{Show tables, graphs, link to result data--and draw conclusions}
 
 \subsection{Testbed issues}
-While running the experiment we have determined that some testbeds
-were not configured properly.  Initially we ran on Virtual Wall 2,
-which had the issues identified below; after investigation, we
-moved all experiments to Virtual Wall 1, which had fewer issues.
+While running the experiment we have determined that some testbeds were
+not configured properly.  Initially we ran on Virtual Wall 2, as this is
+offered by default but it turns out to have the issues identified below;
+after investigation, we moved all experiments to Virtual Wall 1, which
+had fewer issues.
 
 There did not appear to be any MLD snooping on the VLANs we were
 assigned when creating experiments; on virtual wall 1, all multicast
@@ -444,7 +485,7 @@ and this also independently on the presence of listeners, so when
 we ran our experiments some worked and some did not, with no indication
 of the reason, until we identified this configuration problem with
 the switch. This issue is shown with the commands in figure~\pref{broken},
-\begin{figure}[bp]
+\begin{figure*}[bp]
 \begin{verbatim}
 server0$ yes 'multicast testing' | \
          mcastsend -i `cat /tmp/interface` ff1e::42 4242
@@ -466,7 +507,7 @@ server0$ (kill mcastsend)
 \end{verbatim}
 \caption{Example of effect caused by a misconfigured switch}
 \label{broken}
-\end{figure}
+\end{figure*}
 
 The first set of commands shows the effect of sending a stream on a
 group which the switch had decided to forward; a client joins in the
@@ -480,8 +521,10 @@ there is no reason to expect any difference, and in fact virtual wall
 of commands.  However, on virtual wall 2 no data was received
 even after leaving the programs running for several minutes.
 
-This was not an issue with a single experiment network, we had this
-problem every time we had nodes allocated to virtual wall 2.
+This issue appeared in every single experiment we booted on
+virtual wall 2, until we decided to run everything on virtual
+wall 1 only, even though that limited the size of experiment
+we could run.
 
 Running tcpdump on all nodes, we determined that the switch was
 forwarding all packets to all nodes for some multicast groups,
@@ -497,16 +540,33 @@ limited to the switch connected to virtual wall 2.
 
 In summary, we need to warn anybody wishing to repeat this experiment
 to first make sure that the system they are using is properly
-configured.
+configured. We informed support of these issues, but we do not have
+any information about when they will be investigated.
 
 \section{Future work}
 \label{future}
 
-Due to time limitations we have only measured network performance
-for a small set of regular network topologies generated by varying
-some parameters; of course the real world is made up of rather
-more irregular topologies and it it would be interesting to investigate
-more variations in this area in a future set of experiments.
+Due to time limitations we have only measured network performance for
+a small set of regular network topologies, corresponding to the example
+networks shown in sections~\ref{LAN:experiment} to~\ref{GEN:experiment},
+using more clients than shown in the figures; of course the real world
+is made up of rather more irregular topologies and it it would be
+interesting to investigate more variations in this area in a future set
+of experiments.
+
+We also limited the experiments to 64 clients, as we have been unable
+to allocate larger networks: the testbed never had enough free
+resources.  To properly test how the various method scale, we would
+need some experiment setup where we can easily allocate 500 or more
+nodes.
+
+Alternatively, we would like to run the experiment distributed across
+several sites to have a much larger number of total nodes, and also a
+more representative network structure.  However the unicast experiments
+are likely to require massive amount of network bandwidth, and the
+multicast experiments require proper multicast configuration at all
+sites and multicast routing between then, so these factors will limit
+the choice of sites.
 
 We also simplified the software update by assuming that all clients
 request exactly the same file, rather than a more complex situation
@@ -587,12 +647,14 @@ for ``jfed''~\cite{jfed} so that the process could be automated; a single progra
 described in this report by providing appropriate options; for the
 networks shown as examples in the figures we just ran:
 
+\begin{small}
 \begin{verbatim}
 local$ mknet L=8
 local$ mknet R=1 L=8
-local$ mknet R=2 L=2
-local$ mknet R=3 L=1
+local$ mknet R=3 L=2
+local$ mknet R=2 L=4
 \end{verbatim}
+\end{small}
 
 As can be seen, omitting ``R'' results in a single LAN network in which
 the number of clients is specified by ``L'' for consistency with the
@@ -601,43 +663,52 @@ LAN).
 
 By default, the program generates an experiment name indicating the
 parameters provided: for the four examples above this would be: ``S1L8'',
-``S1R1L8'', ``S1R2L2'' and ``S1R3L1''; the data generated will be stored
-in a directory inside {\tt/tmp} named after the experiment (the name
+``S1R1L8'', ``S1R3L2'' and ``S1R2L4''; the data generated will be stored
+in a directory inside {\tt/var/tmp} named after the experiment (the name
 of the experiment starts with ``S1'' to indicate the number of servers,
-in preparation for a future multi-server experiment).
+in preparation for a future multi-server experiment, and the directory
+can be changed with other command-line options).
 
-One of the files generated, {\tt action.yaml}, is suitable for using as
-an action file with the ``jfed-cli'' tool and will provision the testbed;
-the program also generates {\tt action.rspec} which is suitable for
-using with the ``jfed-gui'' tool.  We do not describe these tools here
-as they are provided by fed4fire, but see~\cite{jfed}.
+One of the files generated, {\tt action.yaml}, is suitable for using
+as argument to the {\tt-a} (action file) option to the ``jfed-cli''
+tool and will provision the testbed; the program also generates {\tt
+action.rspec} which is suitable for using with the ``jfed-gui'' tool.
+We do not describe these tools here as they are provided by fed4fire,
+but see~\cite{jfed}.
 
 Once the testbed is up and running, we need to copy some things to it,
 for example the actual programs which will run on it and information about
 the experiment to run.  The list of data sizes is also specified at
 this point, for example to run with 32, 64 and 512 megabytes on the
-first single LAN experiment defined above (``S3L8'')
+first single LAN experiment defined above (``S1L8'')
 
+\begin{small}
 \begin{verbatim}
-local$ setup-experiment 32,64,512 S3L8
+local$ setup-experiment 32,64,512 S1L8
 \end{verbatim}
+\end{small}
 
 This sets up the ``director'' node and copies the {\tt objects} directory
 of the repository to it.  To complete the setup, one needs to connect to
 it and then run a program there:
 
+\begin{small}
 \begin{verbatim}
-local$ ssh-experiment S3L8 director0
+local$ ssh-experiment S1L8 director0
 director0$ /tmp/experiment/setup-all
 \end{verbatim}
+\end{small}
 
 The testbed is now ready to run the experiment by running a program on
 director0:
 
+\begin{small}
 \begin{verbatim}
-local$ ssh-experiment S3L8 director0
-director0$ /tmp/experiment/run-experiment
+local$ ssh-experiment S1L8 director0
+director0$ cd /tmp/experiment
+director0$ ./run-experiment
 \end{verbatim}
+\end{small}
 
 If required, the ``{\tt run-experiment}'' program can run many times
 to obtain more data without additional setup overhead; no need to
@@ -648,31 +719,35 @@ running on the director, but also on servers, routers and clients
 as necessary to implement the procedure described in
 sections~\ref{LAN:experiment} to~\ref{GEN:experiment}. These
 have names like ``{\tt start-tcp-server}'' or
-``{\tt start-multicast-router}'' to start wat is required for
+``{\tt start-multicast-router}'' to start what is required for
 a particular experiment on a particular node (in this example,
 start the TCP experiment on a server, and start the multicast
 routing daemon on a router, respectively).  All these programs are
 found in the repository cited.
 
 One issue we found while developing programs to automate the experiment
-is that network interface names may be different when booting
-different testbeds; each node has two interfaces, a control
-interface used by the testbed administration, as well as to log
-in to it from outside the experiment, and a second interface
-connected as required by the experiment's network topology and
-used to transfer the data files during the experiment; for a router
-node, there are obviously more interfaces.  We did not have time
-to develop our own boot image to work around the problem that
-systemd's ``predictable'' interface names turn out to be nothing
-of the sort, so the ``setup-all'' script will additionally have
-to figure out what interface is going to be used for what, and
-configure them as required: this may be different for each node.
-It will also assign friendlier names to the interface which tell
-us what is used for what, as is important when looking at network
-usage data for routers.
+is that network interface names may be different when booting different
+testbeds; each node has two interfaces, a control interface used by
+the testbed administration, as well as to log in to it from outside
+the experiment, and a second interface connected as required by the
+experiment's network topology and used to transfer the data files during
+the experiment; for a router node, there are obviously more interfaces:
+therefore we needed to determine what interface name was actually
+assigned to what.  The fed4fire documentation mentions a tool to obtain
+the necessary information on each node, however the tool did not work:
+it required a version of Python which is no longer available, and all
+it produced for us was a syntax error.  Instead of debugging that,
+it was easier for us to have the ``setup-all'' script figure out what
+interface is going to be used for what based on the MAC address listed
+in the output from the jfed program, and configure them as required:
+this may be different for each node.  It also sets up the monitoring so
+that the interfaces are reported in a consistent way, as is important
+when looking at network usage data for routers.
 
-\subsubsection{Resource monitoring}
-{\em The program described here is in the lwmon repository~\cite{lwmon}.}
+\subsection{Resource monitoring}
+\label{lwmon}
+{\em The program described here is in the lwmon
+repository~\cite{lwmon:sources}.}
 
 There are many monitoring tools for Unix system, however in our experience
 they tend to use more resources than programs which do the actual work,
@@ -695,8 +770,8 @@ daemon for routers if requires by the experiment, and the program which
 gets the updates for clients) also runs as a child process of lwmon,
 so the latter can report on the resource used by this program.
 
-A lwmon configuration for a client looks like:
-
+A lwmon configuration for a client is shown in figure~\pref{lwmon:client}.
+\begin{figure*}[bp]
 \begin{verbatim}
 hostname client2
 
@@ -707,9 +782,11 @@ network if1 1 enp6s0
 self self 2
 
 program exp 5 /tmp/experiment/start-multicast-client enp6s0
-print /tmp/results/client2,multicast,random.64 overwrite binary
+print /tmp/results/client2.multicast.random.64 overwrite binary
 \end{verbatim}
-
+\caption{lwmon client configuration}
+\label{lwmon:client}
+\end{figure*}
 This means that load average, memory/swap usage and network usage are
 sampled every second, lwmon's own resource usage every 2 seconds, will
 run the appropriate program for a particular experiment (in this case,
@@ -730,9 +807,10 @@ that's how it will be able to find it in the system, but reports it
 using the name ``if1'' as this is the interface name we have used
 in the action file and rspec.
 
-Configuration for a server is essentially identical, with ``client''
-replaced by ``server'', and for a router it is very similar:
-
+The configuration for a server is essentially identical, with ``client''
+replaced by ``server'', and for a router it is very similar, as shown
+in figure~\pref{lwmon:router}.
+\begin{figure*}[bp]
 \begin{verbatim}
 hostname router0
 
@@ -744,9 +822,11 @@ network if2 1 enp6s0
 self self 2
 
 program exp 5 /tmp/experiment/start-multicast-router enp4s0
-print /tmp/results/router0,multicast,random.64 overwrite binary
+print /tmp/results/router0.multicast.random.64 overwrite binary
 \end{verbatim}
-
+\caption{lwmon router configuration}
+\label{lwmon:router}
+\end{figure*}
 The network interface reported as ``if1'' has network traffic going
 to or from clients, and ``if2'' has traffic going to or from servers.
 
@@ -766,68 +846,186 @@ As mentioned, lwmon produces a file containing data in a packed binary
 format. To just look at the data, the tool has an option to read that
 binary file back in and produce a human-readable output:
 
+\begin{small}
 \begin{verbatim}
-$ lwmon -R /tmp/results/router0,multicast,random.64 -P -
+$ lwmon -P - \
+  -R data/router0.multicast.random.64
 \end{verbatim}
+\end{small}
 
 There is a separate tool which reads one or more data files and produces
 SQL statements which can be used to import it into a database, for example:
 
+\begin{small}
 \begin{verbatim}
-$ lwmon-to-sql [options] DATA_FILES | sqlite3 database.sqlite
+$ lwmon-to-sql [options] FILES | \
+  sqlite3 database.sqlite
 \end{verbatim}
+\end{small}
 
 As described below in~\ref{importing}, for this experiment we have developed
 a tool which calls {\tt lwmon-to-sql} in the appropriate way to import
 experiment results in a format suitable for further analysis.
 
-\subsubsection{Programs implementing the multicsst update method}
+\subsection{Multicast update method}
 \label{iotupd}
 \TODO{iotupd}
 
-\subsubsection{Programs implementing the unicast update methods}
+\subsection{Unicast update methods}
 \label{unisync}
 \TODO{unisync}
 
-\subsection{Importing results in a database}
+\subsection{Importing results into a database}
 \label{importing}
-\TODO{extract-data, import-into-sqlite}
+
+{\em The programs described here are in the ``experiment scripts''
+repository~\cite{exp:scripts}.}
+
+The ``lwmon'' program (appendix~\ref{lwmon}) produces a lot of data, as it
+measures several items every second, and of course each node in the
+experiment produces its own set of measurements.  The end result is that
+we have tens of millions of data items divided into thousands of ``tar''
+archives, each one produced by a single experiment run; inside these
+archives, files are named after the node which produced them (for example,
+client1 or router0) and the actual experiment ran (for example, multicast
+or tcp) but other information is only in the name of the archive itself,
+so the first step is to extract all these files renaming them so that
+the names contain all the necessary information (this situation is because
+when we started running the experiments, only the ``director'' node
+had all the information, but the file names were generated by the nodes
+creating the files: in a future experiment we are planning to change this).
+
+These tar archives have names like:
+
+\begin{small}
+\begin{verbatim}
+S1L8:1640684316-udp-random-
+2048-20211229061449.tar.gz
+\end{verbatim}
+\end{small}
+
+which has been produced by the network we named ``S1L8'', booted when
+the time on our local system was 1640684316 seconds after the epoch; this
+archive contains the results for the ``udp'' method with ``random''
+scheduling and a data size of 2048MB; the run ended on December 29, 2021
+at 06:14:49 (local time of the testbed).  The actual timestamp values
+are not important per se, but together with the name we assign to the
+network they generate unique names for each run (the name has been
+folded into multiple lines to fit in the layout of the report, but
+of course it is a single string).
+
+If the tar archives are in {\tt\textasciitilde/raw-data}, to extract them to
+{\tt\textasciitilde/extracted-data} while renaming files as described:
+
+\begin{small}
+\begin{verbatim}
+$ extract-data ~/raw-data \
+  ~/extracted-data '*'
+\end{verbatim}
+\end{small}
+
+The last argument is a pattern selecting which files will be extracted.
+To extract only some results, use a more specific pattern, for example
+{\tt'S1L8:*'} to select only results from a network named ``S1L8''.
+(Note that this program requires GNU tar to do the file renaming).
+
+The program produces files with names like:
+
+\begin{small}
+\begin{verbatim}
+client5.udp.random.2048.
+S1L8:1640684316.20211229061449
+\end{verbatim}
+\end{small}
+
+which contain the same information as the archive name (in a different order),
+plus the name of the node which produced a particular file (client5 in this
+case).  These files are raw binary data produced by ``lwmon'' so the next
+step is to import them into a database.
+
+The ``import-into-sqlite'' script, included in the repository, is a
+wrapper around ``lwmon-to-sql'' and ``sqlite'' to import the data into
+a database with a suitable schema.  This relies on both lwmon and sqlite
+to be installed.
+
+To use this wrapper, simply give it the name of the database and the list of
+files to add:
+
+\begin{small}
+\begin{verbatim}
+import-into-sqlite DB.sqlite \
+  ~/extracted-data/*
+\end{verbatim}
+\end{small}
+
+If the database does not exist, the program creates it automatically
+with the following columns:
+
+\begin{small}
+\begin{verbatim}
+topology    varchar(255)
+boot_time   int
+host        varchar(255)
+experiment  varchar(255)
+schedule    varchar(255)
+datasize    int
+run         int
+timestamp   int
+
+name        varchar(255)
+parm        varchar(255)
+key         varchar(255)
+value       int
+\end{verbatim}
+\end{small}
+
+The first group of columns are determined from the file name (``host''
+is the node name, like client5 or router0, and ``topology'' is an
+identifier for the network topology, derived from the name given
+to the testbed); the second group of columns are the data produced
+by ``lwmon''.
 
 \subsection{Analysing results}
-\TODO{extract-result, \ldots}
+{\em The programs described here are in the ``experiment scripts''
+repository~\cite{exp:scripts}.}
 
-\section*{References}
+\TODO{lookup-result, get-summary}
+
 \bibliographystyle{plain}
 \begin{thebibliography}{99}
-\begin{sloppypar}
+\sloppy
+\hbadness=6000
 
-\bibitem{lwmon}
+\bibitem{lwmon:sources}
   C. Calvelli.
   {\em lwmon: A {\bf\em l}ight-{\bf\em w}eight system {\bf\em mon}itoring tool}.\\
-  \url{https://example.com/TODO-need-url}
+  \url{https://github.com/librestack/lwmon}
 
 \bibitem{exp:scripts}
   C. Calvelli, E. Payne, B. Sheffield.
   {\em Fed4fire experiment setup scripts}.\\
   \url{https://example.com/TODO-need-url}
 
-\bibitem{jfed}
-  {\em jfed 5.9 documentation}.\\
-  \url{https://doc.ilabt.imec.be/jfed-documentation-5.9/index.html}
+\bibitem{unisync:sources}
+  C. Calvelli, B. Sheffield.
+  {\em Unicast (TCP/UDP) file syncing test program}.\\
+  \url{https://github.com/librestack/unisync}
 
 \bibitem{iotupd:paper}
   TODO: iotupd paper
 
 \bibitem{iotupd:sources}
+  B. Sheffield.
   {\em Multicast IoT Update Client and Server}.\\
   \url{https://github.com/librestack/iotupd}
 
-\bibitem{unisync:sources}
-  {\em Unicast (TCP/UDP) file syncing test program}.\\
-  \url{https://github.com/librestack/unisync}
+\bibitem{jfed}
+  {\em jfed 5.9 documentation}.\\
+  \longurl{https://doc.ilabt.imec.be/jfed-documentation-5.9/index.html}%
+  {https://doc.ilabt.imec.be/}\\
+  \longurl{https://doc.ilabt.imec.be/jfed-documentation-5.9/index.html}%
+  {jfed-documentation-5.9/index.html}
 
-\end{sloppypar}
 \end{thebibliography}
-
 \end{document}
 
