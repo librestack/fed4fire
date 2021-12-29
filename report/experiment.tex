@@ -367,7 +367,10 @@ we only describe the differences between them here.
 
 After copying the update data to the server and waiting 60 seconds, the
 director will ask the router to start its own resource monitoring, and,
-for the multicast experiment, to start a multicast routing daemon.
+for the multicast experiment, to start a multicast routing daemon. We
+used ``pim6sd''~\cite{pim6sd:sources} for this experiment, although we
+plan to develop our own multicast routing daemon and future experiments
+will use it.
 
 The server wait 2 seconds before starting, to give the router time to be
 fully set up.
@@ -920,18 +923,10 @@ repository~\cite{exp:scripts}.}
 
 \section{Important notes on repeating this experiment}
 \label{configuration}
-Several RFCs, for example RFC 2710~\cite{rfc:2710}, require that routers
-on an IPv6 network perform the router part of MLD, i.e.\ they forward
-multicast packets to all nodes which listen for them, and to no other
-nodes.  This experiment requires this to produce the most useful data,
-or in some cases, to produce any data at all.
-
-While running the experiment we have determined that some testbeds were
-not configured as required and either forwarded all traffic independently
-of the presence of listeners, or worse did not forward traffic at all,
-even to nodes requesting it. It is essential to verify the degree of
-compliance with RFC TODO before repeating the experiment, as this will
-affect the results.
+IPv6 requires multicast, however when preparing to run this experiment
+we found that some testbeds did not actually support it.  Some multicast
+traffic was forwarded as though it were broadcast, and other traffic
+simply dropped. This experiment cannot run under these conditions.
 
 It is very easy to check that multicast packets are forward between nodes:
 build ``mcastsend'' and ``mcastread'' from mcast-tools~\cite{mcast-tools},
@@ -939,7 +934,7 @@ select two nodes in an experiment which are connected to the same LAN,
 and run code like the one shown in figure~\pref{mcast:test}, where the
 interface names in the command must be changed to reflect the actual
 network interface used on these nodes.
-\begin{figure*}[bp]
+\begin{figure*}[btp]
 \begin{verbatim}
 node1$ yes 'multicast testing' | \
        mcastsend -i $INTERFACE ff1e::42 4242
@@ -980,18 +975,17 @@ listeners on the third node, the expected result is that multicast
 packets leave node1, arrive at node2, but are not visible on node3:
 this is the effect of MLD snooping on the switch, forwarding packets
 only to nodes which require them, and it is the best condition to
-run the experiment, as well as being the one fully compliant with
-RFC TODO.
+run the experiment, as it produces the most useful results.
 
 If the packets arrive at all nodes, the experiment can still proceed,
-but the network usage results for the multicast experiment will not
-be accurate.  It means that the switch has not been configured properly,
-and if possible the experiment should be moved to a different testbed.
+but the network usage results for the multicast experiment will be less
+accurate.  If possible the experiment should be moved to a different
+testbed.
 
 In summary, we need to warn anybody wishing to repeat this experiment
-to first make sure that the system they are using is configured in
-accordance with RFC TODO, to avoid wasting their time on an experiment
-which will produce no results.
+to first make sure that the system they are using is configured for
+IPv6 multicast, to avoid wasting their time on an experiment which will
+produce no results.
 
 \bibliographystyle{plain}
 \begin{thebibliography}{99}
@@ -1013,13 +1007,13 @@ which will produce no results.
   {\em Unicast (TCP/UDP) file syncing test program}.\\
   \url{https://github.com/librestack/unisync}
 
-\bibitem{rfc:2710}
-  Deering, S., Fenner, W. and B. Haberman.
-  {\em Multicast Listener Discovery (MLD) for IPv6}.\\
-  \longurl{https://www.rfc-editor.org/in-notes/rfc2710.txt}%
-  {https://www.rfc-editor.org/}\\
-  \longurl{https://www.rfc-editor.org/in-notes/rfc2710.txt}%
-  {in-notes/rfc2710.txt}
+%\bibitem{rfc:2710}
+%  Deering, S., Fenner, W. and B. Haberman.
+%  {\em Multicast Listener Discovery (MLD) for IPv6}.\\
+%  \longurl{https://www.rfc-editor.org/in-notes/rfc2710.txt}%
+%  {https://www.rfc-editor.org/}\\
+%  \longurl{https://www.rfc-editor.org/in-notes/rfc2710.txt}%
+%  {in-notes/rfc2710.txt}
 
 \bibitem{rfc:3170}
   Quinn B. and K. Almeroth.
@@ -1049,6 +1043,10 @@ which will produce no results.
   {\em F0rth/mcast-tools: package containing IPv6-multicast
   routing daemons and tools}.\\
   \url{https://github.com/F0rth/mcast-tools}
+
+\bibitem{pim6sd:sources}
+  {\em troglobit/pim6sd: PIM for IPv6 sparse mode daemon.}\\
+  \url{https://github.com/troglobit/pim6sd}
 
 \end{thebibliography}
 \end{document}
