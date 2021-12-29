@@ -2,6 +2,9 @@
 
 \usepackage{ifpdf}
 
+\hbadness=3000
+\vbadness=4000
+
 \title{Comparing performance of IPv6 multicast and unicast for software updates}
 \author{Claudio Calvelli}
 \date{Draft 0.5 \today}
@@ -41,18 +44,15 @@ user {/Subtype /Link /A << /S /URI /URI (#1) >>}%
 \begin{abstract}
 The librecast project states that ``Multicast is, by definition, the most
 efficient way for multiple nodes to communicate''.  This experiment is
-designed to provide evidence of this efficiency by comparing three
-methods of sending the same data to a large number of nodes, as
-would for example happen when a software update is released. The three
-methods are: traditional unicast; a network taking full advantage of
-multicast; and finally a hybrid designed to represent the use of transitional
-technology to address the lack of multicast routing in many networks.
+designed to provide evidence of this efficiency by comparing multicast
+and unicast methods of sending the same data to a large number of nodes,
+as would for example happen when a software update is released.
 
 \TODO{Report the actual results after we run the experiment}
 \end{abstract}
 
 \section{Introduction}
-The first paragraph of RFC 3170 states:
+The first paragraph of RFC 3170~\cite{rfc:3170} states:
 
 \begin{quotation}
 \noindent
@@ -142,6 +142,10 @@ to make the simulation more realistic and more complete.
 Appendix~\ref{programs} provides some more details about the various
 programs which ran as part of the experiment, and where to find the
 full sources of all these programs.
+
+Appendix~\ref{configuration} provides some important information to
+anybody who wants to repeat this experiment, and how to check if
+an experiment setup is configured as required.
 
 \section{``LAN'' experiment}
 \label{LAN:experiment}
@@ -465,83 +469,6 @@ using 20 clients rather than 8.
 \label{results}
 
 \TODO{Show tables, graphs, link to result data--and draw conclusions}
-
-\subsection{Testbed issues}
-While running the experiment we have determined that some testbeds were
-not configured properly.  Initially we ran on Virtual Wall 2, as this is
-offered by default but it turns out to have the issues identified below;
-after investigation, we moved all experiments to Virtual Wall 1, which
-had fewer issues.
-
-There did not appear to be any MLD snooping on the VLANs we were
-assigned when creating experiments; on virtual wall 1, all multicast
-packets sent by any of the nodes appeared on other nodes in the same
-VLAN, independently of the presence of listeners on the nodes: this
-was confirmed using tcpdump.
-
-Virtual wall 2, on the other hand, had a more serious problem, in
-that packets were forwarded for some groups but not for others,
-and this also independently on the presence of listeners, so when
-we ran our experiments some worked and some did not, with no indication
-of the reason, until we identified this configuration problem with
-the switch. This issue is shown with the commands in figure~\pref{broken},
-\begin{figure*}[bp]
-\begin{verbatim}
-server0$ yes 'multicast testing' | \
-         mcastsend -i `cat /tmp/interface` ff1e::42 4242
-client0$ mcastread `cat /tmp/interface` ff1e::42 4242 \
-         > /tmp/datafile
-client0$ (kill mcastread after a few seconds)
-client0$ wc /tmp/datafile
- 1430130  2860261 25742336 /tmp/datafile
-server0$ (kill mcastsend)
-
-server0$ yes 'multicast testing' | \
-         mcastsend -i `cat /tmp/interface` ff1e::42:1234 4242
-client0$ mcastread `cat /tmp/interface` ff1e::42:1234 4242 \
-         > /tmp/datafile
-client0$ (kill mcastread after some time)
-client0$ wc /tmp/datafile
- 0 0 0 /tmp/datafile
-server0$ (kill mcastsend)
-\end{verbatim}
-\caption{Example of effect caused by a misconfigured switch}
-\label{broken}
-\end{figure*}
-
-The first set of commands shows the effect of sending a stream on a
-group which the switch had decided to forward; a client joins in the
-middle and receiving packets for a few seconds; some substantial
-amount of data is transferred.
-
-The second set of commands is identical except for the multicast
-group which is \verb+ff1e::42:1234+ instead of \verb+ff1e::42+ --
-there is no reason to expect any difference, and in fact virtual wall
-1 and our own systems give the same results as the previous set
-of commands.  However, on virtual wall 2 no data was received
-even after leaving the programs running for several minutes.
-
-This issue appeared in every single experiment we booted on
-virtual wall 2, until we decided to run everything on virtual
-wall 1 only, even though that limited the size of experiment
-we could run.
-
-Running tcpdump on all nodes, we determined that the switch was
-forwarding all packets to all nodes for some multicast groups,
-and dropping all packets for other groups; this was independent
-on the presence of listeners on the nodes.  We haven't been able
-to determine (or to find in the documentation) what criteria the
-switch used to decide what groups to forward and what groups to
-drop, so we decided to use only virtual wall 1 for our experiment.
-no data appears in the file, no matter how long one leaves mcastread
-running; on virtual wall 1 and on our own systems, we do not observe
-any difference due to the group used, so this issue appears to be
-limited to the switch connected to virtual wall 2.
-
-In summary, we need to warn anybody wishing to repeat this experiment
-to first make sure that the system they are using is properly
-configured. We informed support of these issues, but we do not have
-any information about when they will be investigated.
 
 \section{Future work}
 \label{future}
@@ -991,31 +918,123 @@ repository~\cite{exp:scripts}.}
 
 \TODO{lookup-result, get-summary}
 
+\section{Important notes on repeating this experiment}
+\label{configuration}
+Several RFCs, for example RFC 2710~\cite{rfc:2710}, require that routers
+on an IPv6 network perform the router part of MLD, i.e.\ they forward
+multicast packets to all nodes which listen for them, and to no other
+nodes.  This experiment requires this to produce the most useful data,
+or in some cases, to produce any data at all.
+
+While running the experiment we have determined that some testbeds were
+not configured as required and either forwarded all traffic independently
+of the presence of listeners, or worse did not forward traffic at all,
+even to nodes requesting it. It is essential to verify the degree of
+compliance with RFC TODO before repeating the experiment, as this will
+affect the results.
+
+It is very easy to check that multicast packets are forward between nodes:
+build ``mcastsend'' and ``mcastread'' from mcast-tools~\cite{mcast-tools},
+select two nodes in an experiment which are connected to the same LAN,
+and run code like the one shown in figure~\pref{mcast:test}, where the
+interface names in the command must be changed to reflect the actual
+network interface used on these nodes.
+\begin{figure*}[bp]
+\begin{verbatim}
+node1$ yes 'multicast testing' | \
+       mcastsend -i $INTERFACE ff1e::42 4242
+node2$ mcastread $INTERFACE ff1e::42 4242 > /tmp/datafile
+node2$ (kill mcastread after a few seconds)
+node2$ wc /tmp/datafile
+ 1430130  2860261 25742336 /tmp/datafile
+node1$ (kill mcastsend)
+
+node1$ yes 'multicast testing' | \
+       mcastsend -i $INTERFACE ff1e::42:1234 4242
+node2$ mcastread $INTERFACE ff1e::42:1234 4242 > /tmp/datafile
+node2$ (kill mcastread after some time)
+node2$ wc /tmp/datafile
+ 0 0 0 /tmp/datafile
+node1$ (kill mcastsend)
+\end{verbatim}
+\caption{Testing proper switch configuration (also see text)}
+\label{mcast:test}
+\end{figure*}
+
+The expected result is that both examples show a lot of data stored in
+{\tt/tmp/datafile}, as multicast packets are forwarded from the sender
+to all nodes which request receiving them.  However on some testbeds we
+found that this was not the case, and instead produced the result shown
+in the figure: some multicast groups were forwarded, while others were
+blocked, and this means that any part of the experiment which uses groups
+which are blocked will not be able to proceed. It is best to repeat this
+test using a few other multicast groups made up of random numbers to
+make sure that they all forward data as expected.  We haven't been able
+to determine which kind of switch configuration produces this peculiar
+effect so we had to exclude these testbeds from our experiment.
+
+While running the above code, it is also useful to monitor the interface
+on both nodes and a third node connected to the same LAN but not running
+either ``mcastread'' or ``mcastsend''.  Because of the absence of
+listeners on the third node, the expected result is that multicast
+packets leave node1, arrive at node2, but are not visible on node3:
+this is the effect of MLD snooping on the switch, forwarding packets
+only to nodes which require them, and it is the best condition to
+run the experiment, as well as being the one fully compliant with
+RFC TODO.
+
+If the packets arrive at all nodes, the experiment can still proceed,
+but the network usage results for the multicast experiment will not
+be accurate.  It means that the switch has not been configured properly,
+and if possible the experiment should be moved to a different testbed.
+
+In summary, we need to warn anybody wishing to repeat this experiment
+to first make sure that the system they are using is configured in
+accordance with RFC TODO, to avoid wasting their time on an experiment
+which will produce no results.
+
 \bibliographystyle{plain}
 \begin{thebibliography}{99}
 \sloppy
 \hbadness=6000
 
 \bibitem{lwmon:sources}
-  C. Calvelli.
+  Calvelli, C..
   {\em lwmon: A {\bf\em l}ight-{\bf\em w}eight system {\bf\em mon}itoring tool}.\\
   \url{https://github.com/librestack/lwmon}
 
 \bibitem{exp:scripts}
-  C. Calvelli, E. Payne, B. Sheffield.
+  Calvelli, C., Payne, E. and B. Sheffield.
   {\em Fed4fire experiment setup scripts}.\\
   \url{https://example.com/TODO-need-url}
 
 \bibitem{unisync:sources}
-  C. Calvelli, B. Sheffield.
+  Calvelli C. and B. Sheffield.
   {\em Unicast (TCP/UDP) file syncing test program}.\\
   \url{https://github.com/librestack/unisync}
+
+\bibitem{rfc:2710}
+  Deering, S., Fenner, W. and B. Haberman.
+  {\em Multicast Listener Discovery (MLD) for IPv6}.\\
+  \longurl{https://www.rfc-editor.org/in-notes/rfc2710.txt}%
+  {https://www.rfc-editor.org/}\\
+  \longurl{https://www.rfc-editor.org/in-notes/rfc2710.txt}%
+  {in-notes/rfc2710.txt}
+
+\bibitem{rfc:3170}
+  Quinn B. and K. Almeroth.
+  {\em IP Multicast Applications: Challenges and Solutions}.
+  RFC 3170.\\
+  \longurl{https://www.rfc-editor.org/in-notes/rfc3170.txt}%
+  {https://www.rfc-editor.org/}\\
+  \longurl{https://www.rfc-editor.org/in-notes/rfc3170.txt}%
+  {in-notes/rfc3170.txt}
 
 \bibitem{iotupd:paper}
   TODO: iotupd paper
 
 \bibitem{iotupd:sources}
-  B. Sheffield.
+  Sheffield, B.
   {\em Multicast IoT Update Client and Server}.\\
   \url{https://github.com/librestack/iotupd}
 
@@ -1025,6 +1044,11 @@ repository~\cite{exp:scripts}.}
   {https://doc.ilabt.imec.be/}\\
   \longurl{https://doc.ilabt.imec.be/jfed-documentation-5.9/index.html}%
   {jfed-documentation-5.9/index.html}
+
+\bibitem{mcast-tools}
+  {\em F0rth/mcast-tools: package containing IPv6-multicast
+  routing daemons and tools}.\\
+  \url{https://github.com/F0rth/mcast-tools}
 
 \end{thebibliography}
 \end{document}
