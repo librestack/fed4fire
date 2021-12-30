@@ -17,7 +17,7 @@ my %what = (
     net      => ['if1',        'bytes_sent+bytes_received', 1e-6,  '%.1f', 'MB/s' ],
     tx2      => ['if2',        'bytes_sent',                1e-6,  '%.1f', 'MB/s' ],
     rx2      => ['if2',        'bytes_received',            1e-6,  '%.1f', 'MB/s' ],
-    net2     => ['if1',        'bytes_sent+bytes_received', 1e-6,  '%.1f', 'MB/s' ],
+    net2     => ['if2',        'bytes_sent+bytes_received', 1e-6,  '%.1f', 'MB/s' ],
 
     mem      => ['memswap',    'used_memory_pages',         1/256, '%.0f', 'MB' ],
     swap     => ['memswap',    'used_swap_pages',           1/256, '%.0f', 'MB' ],
@@ -176,7 +176,8 @@ CREATE TABLE IF NOT EXISTS lwmon_summary (
     n_clients INT,
     key VARCHAR(255),
     count INT,
-    total INT
+    total FLOAT,
+    square FLOAT
 );
 EOF
     run_update(<<EOF, 1);
@@ -195,12 +196,12 @@ WHERE experiment = ?
 EOF
     $insert_handle = $odbh->prepare(<<EOF);
 INSERT INTO lwmon_summary
-(total, experiment, schedule, datasize, topology, host_type, n_clients, key, count)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1);
+(total, square, experiment, schedule, datasize, topology, host_type, n_clients, key, count)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
 EOF
     $update_handle = $odbh->prepare(<<EOF);
 UPDATE lwmon_summary
-SET count = count + 1, total = total + ?
+SET count = count + 1, total = total + ?, square = square + ?
 WHERE experiment = ?
   AND schedule = ?
   AND datasize = ?
@@ -410,11 +411,12 @@ sub run_update {
 sub add_data {
     my @data = @_;
     my $value = pop @data;
+    my $square = $value * $value;
     my ($count) = $odbh->selectrow_array($exists_handle, {}, @data);
     if ($count) {
-	$update_handle->execute($value, @data);
+	$update_handle->execute($value, $square, @data);
     } else {
-	$insert_handle->execute($value, @data);
+	$insert_handle->execute($value, $square, @data);
     }
 }
 

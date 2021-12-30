@@ -9,7 +9,8 @@ my $database = shift @ARGV;
 my $dbh = DBI->connect("dbi:SQLite:dbname=$database", '', '',
 		       { RaiseError => 1, ReadOnly => 1 });
 
-my (%type, %experiment, %schedule, %data, @data, $all_data, %topology, $all_topologies, %sizes);
+my (%type, %experiment, %schedule, %data, @data, $all_data,
+    %topology, $all_topologies, %sizes, @group, %gptr);
 while (@ARGV) {
     my $cmd = shift @ARGV;
     if ($cmd =~ /^(?:client|router|server)$/i) {
@@ -52,6 +53,11 @@ while (@ARGV) {
 	$sizes{$_} = 1 for (32, 128, 512, 2048);
 	next;
     }
+    if ($cmd =~ /^group=(\d+(?:,\d+)*)$/ ) {
+	@group = map { $_ - 1 } split(/,/, $1);
+	%gptr = map { ($_ => 0) } @group;
+	next;
+    }
     if (lc($cmd) eq 'all_data' || lc($cmd) eq 'ad') {
 	$all_data = 1;
 	next;
@@ -66,39 +72,43 @@ keys %experiment or die "No experiment types selected\n";
 keys %schedule or die "No schedules selected\n";
 keys %sizes or die "No sizes selected\n";
 
-if ($all_data) {
-    for my $dp (@{ $dbh->selectall_arrayref('SELECT key FROM lwmon_summary GROUP BY key;') }) {
-	my $cmd = lc $dp->[0];
-	exists $data{$cmd} and next;
-	$data{lc $cmd} = 1;
-	push @data, $cmd;
-    }
-}
-@data or die "No data requested\n";
+$all_data || @data or die "No data requested\n";
 
 my %fmt = (
-    rx      => '%.2f',
-    rx2     => '%.2f',
-    tx      => '%.2f',
-    tx2     => '%.2f',
-    syscpu  => '%.3f',
-    totcpu  => '%.3f',
-    usercpu => '%.3f',
+    mem      => '%.2f',
+    swap     => '%.2f',
+
+    rx       => '%.2f',
+    rx2      => '%.2f',
+    tx       => '%.2f',
+    tx2      => '%.2f',
+    net      => '%.2f',
+    net2     => '%.2f',
+
+    load     => '%.3f',
+    syscpu   => '%.3f',
+    totcpu   => '%.3f',
+    usercpu  => '%.3f',
+
+    duration => '%.3f',
 );
 
 my %scale = (
-    rx      => 1e-3,
-    rx2     => 1e-3,
-    tx      => 1e-3,
-    tx2     => 1e-3,
 );
 
 my %unit = (
-    rx      => 'MB',
-    rx2     => 'MB',
-    tx      => 'MB',
-    tx2     => 'MB',
+    mem     => 'MB',
+    swap    => 'MB',
+
+    rx      => 'MB/s',
+    rx2     => 'MB/s',
+    tx      => 'MB/s',
+    tx2     => 'MB/s',
+    net     => 'MB/s',
+    net2    => 'MB/s',
 );
+
+my %group;
 
 if ($all_topologies) {
     for my $tp (@{ $dbh->selectall_arrayref('SELECT topology FROM lwmon_summary GROUP BY topology;') }) {
@@ -106,6 +116,7 @@ if ($all_topologies) {
     }
 }
 if (keys %topology) {
+    (grep { $_ < 0 || $_ > 4 } @group) and die "Invalid group @group\n";
     my $rdata = $dbh->prepare(<<EOF);
 SELECT n_clients, total / count
 FROM lwmon_summary
@@ -117,18 +128,30 @@ WHERE experiment = ?
   AND key = ?
 ORDER BY n_clients
 EOF
+    my $rkeys = $dbh->prepare(<<EOF);
+SELECT key
+FROM lwmon_summary
+WHERE experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND host_type = ?
+  AND topology = ?
+GROUP BY key
+EOF
     for my $topology (sort keys %topology) {
 	for my $experiment (sort keys %experiment) {
 	    for my $schedule (sort keys %schedule) {
 		for my $size (sort keys %sizes) {
 		    for my $type (sort keys %type) {
-			show_data($rdata, $experiment, $schedule, $size, $type, $topology);
+			show_data($rdata, $rkeys,
+				  $experiment, $schedule, $size, $type, $topology);
 		    }
 		}
 	    }
 	}
     }
 } else {
+    (grep { $_ < 0 || $_ > 3 } @group) and die "Invalid group @group\n";
     my $rdata = $dbh->prepare(<<EOF);
 SELECT n_clients, SUM(total) / SUM(count)
 FROM lwmon_summary
@@ -140,13 +163,20 @@ WHERE experiment = ?
 GROUP BY n_clients
 ORDER BY n_clients
 EOF
+    my $rkeys = $dbh->prepare(<<EOF);
+SELECT key
+FROM lwmon_summary
+WHERE experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND host_type = ?
+GROUP BY key
+EOF
     for my $experiment (sort keys %experiment) {
 	for my $schedule (sort keys %schedule) {
 	    for my $size (sort keys %sizes) {
 		for my $type (sort keys %type) {
-		    for my $data (@data) {
-			run_data($rdata, $experiment, $schedule, $size, $type, $data);
-		    }
+		    show_data($rdata, $rkeys, $experiment, $schedule, $size, $type);
 		}
 	    }
 	}
@@ -155,18 +185,63 @@ EOF
 
 $dbh->disconnect();
 
+for my $gn (sort keys %group) {
+    print "$gn:\n";
+    my $title1 = '';
+    my $title2 = '';
+    my @rows;
+    for my $gp (@{$group{$gn}}) {
+	my ($glen, $grest, $title, $max_clients, $gdata) = @$gp;
+	$title1 .= '  ' . adjust($grest, $glen);
+	$title2 .= '  ' . adjust($title, $glen);
+	for (my $i = 0; $i <= $max_clients; $i++) {
+	    my $n = $gdata->[$i];
+	    defined $n or $n = ' ' x $glen;
+	    defined $rows[$i] or $rows[$i] = '';
+	    $rows[$i] .= '  ' . $n;
+	}
+    }
+    print "n_clients $title1\n          $title2\n";
+    for (my $i = 0; $i < @rows; $i++) {
+	defined $rows[$i] && $rows[$i] =~ /\S/ or next;
+	printf "%9d %s\n", $i, $rows[$i];
+    }
+    print "\n";
+}
+
+sub adjust {
+    my ($s, $clen) = @_;
+    length($s) < $clen or return $s;
+    my $l2 = $clen - length($s);
+    my $l1 = int($l2 / 2);
+    $l2 -= $l1;
+    return (' ' x $l1) . $s . (' ' x $l2);
+}
+
 sub show_data {
-    my ($handle, @parms) = @_;
-    my $title = join(' ', @parms) . "\nn_clients";
+    my ($rdata, $rkeys, @parms) = @_;
+    my $title1 = join(' ', @parms);
+    my $title2 = '';
     my @values;
     my @space;
     my $max_clients = -1;
-    for my $data (@data) {
+    my @sdata = @data;
+    my %sdata = %data;
+    if ($all_data) {
+	for my $dp (@{ $dbh->selectall_arrayref($rkeys, {}, @parms) }) {
+	    my $cmd = lc $dp->[0];
+	    exists $sdata{$cmd} and next;
+	    $sdata{lc $cmd} = 1;
+	    push @sdata, $cmd;
+	}
+    }
+    my $glen = 0;
+    for my $data (@sdata) {
 	my $prndata = $data;
 	exists $unit{$data} and $prndata .= "($unit{$data})";
 	my $len = length $prndata;
 	my @column;
-	for my $dp (@{ $dbh->selectall_arrayref($handle, {}, @parms, $data) }) {
+	for my $dp (@{ $dbh->selectall_arrayref($rdata, {}, @parms, $data) }) {
 	    my ($nc, $num) = @$dp;
 	    defined $num or next;
 	    $max_clients < $nc and $max_clients = $nc;
@@ -178,12 +253,21 @@ sub show_data {
 	push @values, \@column;
 	$len += 2;
 	push @space, $len;
-	$title .= sprintf "%${len}s", $prndata;
+	$glen += $len;
+	$title2 .= sprintf "%${len}s", $prndata;
     }
-    $max_clients >= 0 or next;
-    print $title, "\n";
+    $max_clients >= 0 or return;
+    my ($gindex, $grest, @gdata);
+    if (@group) {
+	$gindex = join(' ', @parms[@group]);
+	$grest = join(' ', map { $parms[$_] } grep { ! exists $gptr{$_} } (0..$#parms));
+	$glen < length $grest and $glen = length $grest;
+	$glen < length $title2 and $glen = length $title2;
+    } else {
+	print $title1, "\nn_clients", $title2, "\n";
+    }
     for (my $i = 0; $i <= $max_clients; $i++) {
-	my $row = sprintf '%9d', $i;
+	my $row = '';
 	my $has_data = 0;
 	for (my $j = 0; $j < @space; $j++) {
 	    if (defined $values[$j][$i]) {
@@ -193,18 +277,17 @@ sub show_data {
 		$row .= ' ' x $space[$j];
 	    }
 	}
-	$has_data and print $row, "\n";
+	$has_data or next;
+	if (@group) {
+	    $gdata[$i] = $row;
+	} else {
+	    printf "%9d%s\n", $i, $row;
+	}
     }
-    print "\n";
-}
-
-sub run_data {
-    my ($handle, @data) = @_;
-    my $title = join(' ', @data) . "\n";
-    for my $dp (@{ $dbh->selectall_arrayref($handle, {}, @data) }) {
-	print $title;
-	$title = '';
-	printf "%3d %10.3f\n", @$dp;
+    if (@group) {
+	push @{$group{$gindex}}, [$glen, $grest, $title2, $max_clients, \@gdata];
+    } else {
+	print "\n";
     }
 }
 
