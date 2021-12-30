@@ -10,21 +10,23 @@ my $dbh = DBI->connect("dbi:SQLite:dbname=$database", '', '',
 		       { RaiseError => 1, ReadOnly => 1 });
 
 my %what = (
-    load    => ['lavg',    '1minute',                   0.01,  '%.2f' ],
+    load     => ['lavg',       '1minute',                   0.01,  '%.2f' ],
 
-    tx      => ['if1',     'bytes_sent',                1e-3,  '%.0f' ],
-    rx      => ['if1',     'bytes_received',            1e-3,  '%.0f' ],
-    net     => ['if1',     'bytes_sent+bytes_received', 1e-3,  '%.0f' ],
-    tx2     => ['if2',     'bytes_sent',                1e-3,  '%.0f' ],
-    rx2     => ['if2',     'bytes_received',            1e-3,  '%.0f' ],
-    net2    => ['if1',     'bytes_sent+bytes_received', 1e-3,  '%.0f' ],
+    tx       => ['if1',        'bytes_sent',                1e-3,  '%.0f' ],
+    rx       => ['if1',        'bytes_received',            1e-3,  '%.0f' ],
+    net      => ['if1',        'bytes_sent+bytes_received', 1e-3,  '%.0f' ],
+    tx2      => ['if2',        'bytes_sent',                1e-3,  '%.0f' ],
+    rx2      => ['if2',        'bytes_received',            1e-3,  '%.0f' ],
+    net2     => ['if1',        'bytes_sent+bytes_received', 1e-3,  '%.0f' ],
 
-    mem     => ['memswap', 'used_memory_pages',         1/256, '%.0f' ],
-    swap    => ['memswap', 'used_swap_pages',           1/256, '%.0f' ],
+    mem      => ['memswap',    'used_memory_pages',         1/256, '%.0f' ],
+    swap     => ['memswap',    'used_swap_pages',           1/256, '%.0f' ],
 
-    usercpu => ['cpu',     'user',                      0.001, '%.3f' ],
-    syscpu  => ['cpu',     'system',                    0.001, '%.3f' ],
-    totcpu  => ['cpu',     'user+system',               0.001, '%.3f' ],
+    usercpu  => ['cpu',        'user',                      1e-3,  '%.3f' ],
+    syscpu   => ['cpu',        'system',                    1e-3,  '%.3f' ],
+    totcpu   => ['cpu',        'user+system',               1e-3,  '%.3f' ],
+
+    duration => ['experiment', 'wallclock',                 1e-3,  '%.3f' ],
 );
 
 my @where = ("host = 'server0'"); # see comment below
@@ -32,7 +34,7 @@ my (@what, $count, $output);
 while (@ARGV) {
     my $cmd = shift @ARGV;
     if ($cmd =~ /^run=(\d+)$/i) {
-	push @where, "run LIKE '$1%'";
+	push @where, "end_run LIKE '$1%'";
 	next;
     }
     if ($cmd =~ /^top(?:ology)?=(\S+)$/i) {
@@ -86,33 +88,34 @@ $count || @what or die "No data requested\n";
 # the same run
 my $where = join("\n  AND ", @where);
 my @runs = @{ $dbh->selectall_arrayref(<<EOF) };
-SELECT topology, boot_time, experiment, schedule, datasize, run
-FROM lwmon_data
+SELECT topology, boot_time, experiment, schedule, datasize, end_run
+FROM run_data
 WHERE $where
-GROUP BY topology, boot_time, experiment, schedule, datasize, run;
+GROUP BY topology, boot_time, experiment, schedule, datasize, end_run;
 EOF
 
 my $host_handle = $dbh->prepare(<<EOF);
 SELECT host
-FROM lwmon_data
+FROM run_data
 WHERE topology = ?
   AND boot_time = ?
   AND experiment = ?
   AND schedule = ?
   AND datasize = ?
-  AND run = ?
+  AND end_run = ?
 GROUP BY host;
 EOF
 
 my $end_handle = $dbh->prepare(<<EOF);
 SELECT timestamp, value
-FROM lwmon_data
-WHERE topology = ?
+FROM run_data, lwmon_data
+WHERE run_data.run_id = lwmon_data.run_id
+  AND topology = ?
   AND boot_time = ?
   AND experiment = ?
   AND schedule = ?
   AND datasize = ?
-  AND run = ?
+  AND end_run = ?
   AND host = ?
   AND name = 'experiment'
   AND key = 'wallclock';
@@ -120,17 +123,18 @@ EOF
 
 my $data_handle = $dbh->prepare(<<EOF);
 SELECT timestamp, value
-FROM lwmon_data
-WHERE topology = ?
+FROM run_data, lwmon_data
+WHERE run_data.run_id = lwmon_data.run_id
+  AND topology = ?
   AND boot_time = ?
   AND experiment = ?
   AND schedule = ?
   AND datasize = ?
-  AND run = ?
+  AND end_run = ?
   AND host = ?
   AND name = ?
   AND key = ?
-  order by timestamp;
+  ORDER BY timestamp;
 EOF
 
 my ($odbh, $exists_handle, $insert_handle, $update_handle);
@@ -138,21 +142,21 @@ if (defined $output && @what) {
     $odbh = DBI->connect("dbi:SQLite:dbname=$output", '', '',
 			 { RaiseError => 1, AutoCommit => 0 });
     run_update(<<EOF, 1);
-create table lwmon_summary (
-    experiment varchar(255),
-    schedule varchar(255),
-    datasize int,
-    host_type varchar(255),
-    topology varchar(255),
-    n_clients int,
-    key varchar(255),
-    count int,
-    total int
+CREATE TABLE IF NOT EXISTS lwmon_summary (
+    experiment VARCHAR(255),
+    schedule VARCHAR(255),
+    datasize INT,
+    host_type VARCHAR(255),
+    topology VARCHAR(255),
+    n_clients INT,
+    key VARCHAR(255),
+    count INT,
+    total INT
 );
 EOF
     run_update(<<EOF, 1);
-create index lwmon_summary_type
-on lwmon_summary(experiment, schedule, datasize, host_type, topology, n_clients, key);
+CREATE INDEX IF NOT EXISTS lwmon_summary_type
+ON lwmon_summary(experiment, schedule, datasize, host_type, topology, n_clients, key);
 EOF
     $exists_handle = $odbh->prepare(<<EOF);
 SELECT COUNT(*) FROM lwmon_summary
@@ -182,7 +186,10 @@ WHERE experiment = ?
 EOF
 }
 
+my $sep = ' ';
+#my $sep = '|';
 my %count;
+my $do_print = ! $odbh;
 for my $run (sort { $a->[5] <=> $b->[5] ||
 		    $a->[2] cmp $b->[2] ||
 		    $a->[3] cmp $b->[3] ||
@@ -212,9 +219,9 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	    $start{$host} = $end + 1 - int($wall_time / 1000 + .9);
 	}
 	# now extract the data required
-	my $fmt = '%4d | %7d';
-	my $title1 = ' run |   num  ';
-	my $title2 = 'time | clients';
+	my $fmt = "%4d $sep %7d";
+	my $title1 = " run $sep   num  ";
+	my $title2 = "time $sep clients";
 	my %data;
 	my $column = 0;
 	my (@host_type, @key);
@@ -230,18 +237,18 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 		my $l2 = int($l1 / 2);
 		$l1 -= $l2;
 		$sp0 = $sp1 = '';
-		$title1 .= ' | ' . (' ' x $l1) . $tk . (' ' x $l2);
-		$title2 .= ' | ' . $h;
+		$title1 .= " $sep " . (' ' x $l1) . $tk . (' ' x $l2);
+		$title2 .= " $sep " . $h;
 	    } elsif (length($h) < length($tk)) {
 		my $l1 = length($tk) - length($h);
 		my $l2 = int($l1 / 2);
 		$l1 -= $l2;
 		$sp0 = ' ' x $l1;
 		$sp1 = ' ' x $l2;
-		$title1 .= ' | ' . $tk;
-		$title2 .= ' | ' . $sp0 . $h . $sp1;
+		$title1 .= " $sep " . $tk;
+		$title2 .= " $sep " . $sp0 . $h . $sp1;
 	    }
-	    $fmt .= ' |';
+	    $fmt .= " $sep";
 	    for my $h (@h) {
 		$fmt .= $sp0 . ' %' . (length $h) . 's' . $sp1;
 		my ($name, $item, $scale, $format) = @{$what{$key}};
@@ -267,18 +274,26 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	    }
 	}
 	$fmt .= "\n";
-	$odbh or print "$title1\n$title2\n";
+	$do_print and print "$title1\n$title2\n";
 	my $nc = 0;
 	my $prev = 0;
 	my $timebase = undef;
+	my $clients_seen = 0;
+	my $countdown = 10;
 	for my $timestamp (sort { $a <=> $b } keys %data) {
 	    defined $timebase or $timebase = $timestamp;
+	    my $old_nc = $nc;
 	    for my $t (values %start) {
 		$t > $prev && $t <= $timestamp and $nc++;
 	    }
+	    $old_nc < $nc and $clients_seen = 1, $countdown = 10;
 	    for my $t (values %end) {
 		$t >= $prev && $t < $timestamp and $nc--;
 	    }
+	    # some early experiments keep going even though all clients have
+	    # terminated; now they automatically stop, but for old data,
+	    # this will stop retrieving results after the end of the experiment
+	    $nc == 0 && $clients_seen && $countdown-- < 1 and last;
 	    $prev = $timestamp;
 	    my @prn = ($timestamp - $timebase, $nc);
 	    my $has_values = 0;
@@ -286,18 +301,19 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 		my $d = $data{$timestamp}[$i];
 		if (! defined $d) {
 		    $d = '';
-		} elsif ($odbh) {
-		    add_data($experiment, $schedule, $datasize, $dtop,
-			     $host_type[$i], $nc, $key[$i], $d);
+		} else {
+		    $has_values = 1;
+		    if ($odbh) {
+			add_data($experiment, $schedule, $datasize, $dtop,
+				 $host_type[$i], $nc, $key[$i], $d);
+		    }
 		}
 		push @prn, $d;
-		$d ne '' and $has_values = 1;
 	    }
 	    $has_values or next;
-	    $odbh and next;
-	    printf $fmt, @prn;
+	    $do_print and printf $fmt, @prn;
 	}
-	$odbh or print "\n";
+	$do_print and print "\n";
 	$odbh and run_update(undef, 1);
     }
     if ($count) {
