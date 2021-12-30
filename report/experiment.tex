@@ -11,7 +11,8 @@
 
 \setlength{\unitlength}{0.01\linewidth}
 \def\topfaction{0.6}
-\def\bottomfraction{0.6}
+\def\bottomfraction{0.7}
+\setcounter{totalnumber}{5}
 
 \newcommand{\TODO}[1]{\par\noindent%
 \hspace*{\fill}%
@@ -336,7 +337,7 @@ are on the second LAN.  Like the previous experiments, the parameters are
 the number of clients ${\cal C}$, and the update size in bytes ${\cal N}$.
 
 Figure~\pref{s1:r1:c8}
-\begin{figure}[bp]
+\begin{figure}[btp]
 \begin{center}
 \begin{picture}(90,38)
 \put(45,31){\makebox(0,0){\rm\bf S}}
@@ -392,7 +393,7 @@ the number of routers in the path, ${\cal R}$. The total number of clients
 will be ${\cal C} = {\cal L} * 2^{{\cal R} - 1}$, and the routers form a
 tree structure.
 
-A couple of exampels will make this clearer: figure~\pref{s1:r3:l2}
+A couple of examples will make this clearer: figure~\pref{s1:r3:l2}
 \begin{figure}[bp]
 \begin{center}
 \begin{picture}(90,62)
@@ -427,7 +428,7 @@ shows the network topology with ${\cal R} = 3$ and ${\cal L} = 2$,
 so that the 8 clients are organised in 4 separate LANs, with
 7 routers forming a tree structure with the server connected to
 the root of the tree. For comparison, figure~\pref{s1:r2:l4}
-\begin{figure}[bp]
+\begin{figure}[bpt]
 \begin{center}
 \begin{picture}(90,50)
 \put(45,43){\makebox(0,0){\rm\bf S}}
@@ -834,7 +835,8 @@ S1L8:1640684316-udp-random-
 \end{verbatim}
 \end{small}
 
-which has been produced by the network we named ``S1L8'', booted when
+\noindent
+this example has been produced by the network we named ``S1L8'', booted when
 the time on our local system was 1640684316 seconds after the epoch; this
 archive contains the results for the ``udp'' method with ``random''
 scheduling and a data size of 2048MB; the run ended on December 29, 2021
@@ -844,64 +846,19 @@ network they generate unique names for each run (the name has been
 folded into multiple lines to fit in the layout of the report, but
 of course it is a single string).
 
-If the tar archives are in {\tt\textasciitilde/raw-data}, to extract them to
-{\tt\textasciitilde/extracted-data} while renaming files as described:
-
-\begin{small}
-\begin{verbatim}
-$ extract-data ~/raw-data \
-  ~/extracted-data '*'
-\end{verbatim}
-\end{small}
-
-The last argument is a pattern selecting which files will be extracted.
-To extract only some results, use a more specific pattern, for example
-{\tt'S1L8:*'} to select only results from a network named ``S1L8''.
-(Note that this program requires GNU tar to do the file renaming).
-
-The program produces files with names like:
-
-\begin{small}
-\begin{verbatim}
-client5.udp.random.2048.
-S1L8:1640684316.20211229061449
-\end{verbatim}
-\end{small}
-
-which contain the same information as the archive name (in a different order),
-plus the name of the node which produced a particular file (client5 in this
-case).  These files are raw binary data produced by ``lwmon'' so the next
-step is to import them into a database.
-
-The ``import-into-sqlite'' script, included in the repository, is a
-wrapper around ``lwmon-to-sql'' and ``sqlite'' to import the data into
-a database with a suitable schema.  This relies on both lwmon and sqlite
-to be installed.
-
-To use this wrapper, simply give it the name of the database and the list of
-files to add:
-
-\begin{small}
-\begin{verbatim}
-import-into-sqlite DB.sqlite \
-  ~/extracted-data/*
-\end{verbatim}
-\end{small}
-
-If the database does not exist, the program creates it automatically
-with the following columns:
+We use a database with the following columns:
 
 \begin{small}
 \begin{verbatim}
 topology    varchar(255)
 boot_time   int
-host        varchar(255)
 experiment  varchar(255)
 schedule    varchar(255)
 datasize    int
-run         int
-timestamp   int
+end_run     int
+host        varchar(255)
 
+timestamp   int
 name        varchar(255)
 parm        varchar(255)
 key         varchar(255)
@@ -909,11 +866,34 @@ value       int
 \end{verbatim}
 \end{small}
 
-The first group of columns are determined from the file name (``host''
-is the node name, like client5 or router0, and ``topology'' is an
-identifier for the network topology, derived from the name given
-to the testbed); the second group of columns are the data produced
-by ``lwmon''.
+The first group of columns are determined from the archive name and
+the member file names within the archive: ``host'' is the node name,
+like client5 or router0, ``topology'' is an identifier for the network
+topology, derived from the name given to the testbed, the other columns
+contain the obvious values.
+
+The second group of columns are the data produced by ``lwmon'' for a
+particular experiment and node.
+
+If the tar archives are in {\tt\textasciitilde/raw-data}, the
+``import-into-sqlite'' script extracts the data from the archives
+and imports it into a database with the appropriate schema,
+creating it if it does not exist:
+
+\begin{small}
+\begin{verbatim}
+$ import-into-sqlite DB.sqlite \
+  ~/raw-data/*
+\end{verbatim}
+\end{small}
+
+The program determines if a file has already been imported and skips
+it automatically, so it's possible to just run it on the whole
+directory after new data has been produced. It relies on the
+``lwmon-to-sql'' program included with ``lwmon'', and of course
+on the sqlite database to be installed.  There is nothing requiring
+sqlite particularly, it would be possible to use other databases
+by changing the connection information in the script.
 
 \subsection{Analysing results}
 {\em The programs described here are in the ``experiment scripts''
@@ -924,17 +904,15 @@ repository~\cite{exp:scripts}.}
 \section{Important notes on repeating this experiment}
 \label{configuration}
 IPv6 requires multicast, however when preparing to run this experiment
-we found that some testbeds did not actually support it.  Some multicast
-traffic was forwarded as though it were broadcast, and other traffic
-simply dropped. This experiment cannot run under these conditions.
+we found that some testbeds did not actually support it.
 
-It is very easy to check that multicast packets are forward between nodes:
+It is very easy to check that multicast packets are forwarded between nodes:
 build ``mcastsend'' and ``mcastread'' from mcast-tools~\cite{mcast-tools},
 select two nodes in an experiment which are connected to the same LAN,
 and run code like the one shown in figure~\pref{mcast:test}, where the
 interface names in the command must be changed to reflect the actual
 network interface used on these nodes.
-\begin{figure*}[btp]
+\begin{figure*}[tbp]
 \begin{verbatim}
 node1$ yes 'multicast testing' | \
        mcastsend -i $INTERFACE ff1e::42 4242
