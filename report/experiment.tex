@@ -895,11 +895,105 @@ on the sqlite database to be installed.  There is nothing requiring
 sqlite particularly, it would be possible to use other databases
 by changing the connection information in the script.
 
+\TODO{Make DB with all experiment data available somewhere}
+
 \subsection{Analysing results}
 {\em The programs described here are in the ``experiment scripts''
 repository~\cite{exp:scripts}.}
 
-\TODO{lookup-result, get-summary}
+A simple program extracts the data from one or more runs, given the
+data items to extract and a number of selection criteria, for update
+method, referred to as ``experiment'' due to the way things had been
+set up initially, scheduling strategy, data size and so on. These are
+specified on the command line, for example:
+
+\begin{small}
+\begin{verbatim}
+$ lookup-result DB.sqlite \
+  server:load \
+  server:totcpu \
+  server:tx \
+  experiment=multicast \
+  schedule=immediate \
+  datasize=2048 | less
+\end{verbatim}
+\end{small}
+
+This will probably produce a lot of data, so it's best to send the output
+to a file or pipe into a pager.  The output looks like the extract in
+figure~\pref{result:example}.
+\begin{figure*}[bp]
+\begin{small}
+\begin{verbatim}
+RUN: S1L64      2021-12-27 19:06:48
+     multicast  immediate   2048  2021-12-27 13:51:06
+ run     num     server:load   server:totcpu   server:tx
+time   clients     server0        server0       server0
+   0         0        0.29
+   1         3        0.29          0.930             0
+   2        43        0.34          1.010             0
+   3        64        0.34          0.990             0
+   4        64        0.34          1.021             0
+   5        64        0.34          0.990             0
+   6        64        0.34          1.000             0
+   7        64        0.40          1.000          8125
+   8        64        0.40          1.010        122552
+   9        64        0.40          1.000        122596
+  10        64        0.40          0.990        122571
+  11        64        0.40          1.010        122458
+  12        64        0.45          1.000        122604
+  13        64        0.45          0.990        122547
+  14        64        0.45          1.000        122609
+  15        64        0.45          1.000        122476
+  16        64        0.45          1.000        122562
+  17        64        0.49          1.010        122612
+  18        64        0.49          0.990        122584
+...
+ 184         1        1.00          1.000        122497
+ 185         1        1.00          1.000        122554
+ 186         1        1.00          1.010        122609
+ 187         0        1.00          0.990        122628
+ 188         0        1.00          1.000        122481
+ 189         0        1.00          1.000        122612
+\end{verbatim}
+\end{small}
+\caption{Example experiment result}
+\label{result:example}
+\end{figure*}
+The program determines the number of active clients by combining information
+about client start and stop times and adds that to the table.  It can also
+produce a new database with the results by just adding {\tt out=}{\em NAME\/}
+to the command line, in which case it's useful to ask for ``all''
+available information instead of a specific list of fields:
+
+\begin{small}
+\begin{verbatim}
+$ lookup-result DB.sqlite \
+  all \
+  experiment=multicast \
+  schedule=immediate \
+  datasize=2048 \
+  out=/tmp/summary.sqlite
+\end{verbatim}
+\end{small}
+
+This new database will contain different columns from the input one,
+for example there is a new ``n\_clients'', and the ``host'' has been
+replaced by a ``host\_type'' (client, server or router, rather than
+client15, router2) and can be used as input to some of the other tools
+which show summary data.  All available runs can be summarised by
+omitting the selection criteria (this will take a long time to run):
+
+\begin{small}
+\begin{verbatim}
+$ lookup-result DB.sqlite \
+  all out=/tmp/summary.sqlite
+\end{verbatim}
+\end{small}
+
+\TODO{Make DB with above summary.sqlite available somewhere}
+
+\TODO{get-summary}
 
 \section{Important notes on repeating this experiment}
 \label{configuration}
