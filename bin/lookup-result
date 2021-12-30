@@ -10,27 +10,27 @@ my $dbh = DBI->connect("dbi:SQLite:dbname=$database", '', '',
 		       { RaiseError => 1, ReadOnly => 1 });
 
 my %what = (
-    load     => ['lavg',       '1minute',                   0.01,  '%.2f' ],
+    load     => ['lavg',       '1minute',                   0.01,  '%.2f', '' ],
 
-    tx       => ['if1',        'bytes_sent',                1e-3,  '%.0f' ],
-    rx       => ['if1',        'bytes_received',            1e-3,  '%.0f' ],
-    net      => ['if1',        'bytes_sent+bytes_received', 1e-3,  '%.0f' ],
-    tx2      => ['if2',        'bytes_sent',                1e-3,  '%.0f' ],
-    rx2      => ['if2',        'bytes_received',            1e-3,  '%.0f' ],
-    net2     => ['if1',        'bytes_sent+bytes_received', 1e-3,  '%.0f' ],
+    tx       => ['if1',        'bytes_sent',                1e-6,  '%.1f', 'MB/s' ],
+    rx       => ['if1',        'bytes_received',            1e-6,  '%.1f', 'MB/s' ],
+    net      => ['if1',        'bytes_sent+bytes_received', 1e-6,  '%.1f', 'MB/s' ],
+    tx2      => ['if2',        'bytes_sent',                1e-6,  '%.1f', 'MB/s' ],
+    rx2      => ['if2',        'bytes_received',            1e-6,  '%.1f', 'MB/s' ],
+    net2     => ['if1',        'bytes_sent+bytes_received', 1e-6,  '%.1f', 'MB/s' ],
 
-    mem      => ['memswap',    'used_memory_pages',         1/256, '%.0f' ],
-    swap     => ['memswap',    'used_swap_pages',           1/256, '%.0f' ],
+    mem      => ['memswap',    'used_memory_pages',         1/256, '%.0f', 'MB' ],
+    swap     => ['memswap',    'used_swap_pages',           1/256, '%.0f', 'MB' ],
 
-    usercpu  => ['cpu',        'user',                      1e-3,  '%.3f' ],
-    syscpu   => ['cpu',        'system',                    1e-3,  '%.3f' ],
-    totcpu   => ['cpu',        'user+system',               1e-3,  '%.3f' ],
+    usercpu  => ['cpu',        'user',                      1e-3,  '%.3f', '' ],
+    syscpu   => ['cpu',        'system',                    1e-3,  '%.3f', '' ],
+    totcpu   => ['cpu',        'user+system',               1e-3,  '%.3f', '' ],
 
-    duration => ['experiment', 'wallclock',                 1e-3,  '%.3f' ],
+    duration => ['experiment', 'wallclock',                 1e-3,  '%.3f', 'sec' ],
 );
 
 my @where = ("host = 'server0'"); # see comment below
-my (@what, $count, $output);
+my (@what, $count, $output, $tfile, $exclude_checksum);
 while (@ARGV) {
     my $cmd = shift @ARGV;
     if ($cmd =~ /^run=(\d+)$/i) {
@@ -79,6 +79,14 @@ while (@ARGV) {
 	$output = $1;
 	next;
     }
+    if ($cmd =~ /^txt(?:out)?=(.*)$/i) {
+	$tfile = $1;
+	next;
+    }
+    if ($cmd eq 'exclude_checksum') {
+	$exclude_checksum = 1;
+	next;
+    }
     die "Unknown command: $cmd\n";
 }
 $count || @what or die "No data requested\n";
@@ -104,6 +112,23 @@ WHERE topology = ?
   AND datasize = ?
   AND end_run = ?
 GROUP BY host;
+EOF
+
+my $sum_handle = $dbh->prepare(<<EOF);
+SELECT timestamp, value
+FROM run_data, lwmon_data
+WHERE run_data.run_id = lwmon_data.run_id
+  AND topology = ?
+  AND boot_time = ?
+  AND experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND end_run = ?
+  AND host = 'server0'
+  AND name = 'if1'
+  AND key = 'bytes_sent'
+ORDER BY timestamp
+LIMIT 30;
 EOF
 
 my $end_handle = $dbh->prepare(<<EOF);
@@ -199,12 +224,30 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 		  } @runs)
 {
     my ($topology, $boot_time, $experiment, $schedule, $datasize, $run_ts) = @$run;
+    if (defined $tfile && $do_print) {
+	my $dest = sprintf $tfile, "$experiment.$schedule.$datasize.$topology.$run_ts";
+	open(TFILE, '>', $dest) or die "$dest: $!\n";
+	select TFILE;
+    }
     my $dtop = $topology;
     $dtop =~ s/\D+$//;
     if (@what) {
 	printf "RUN: %-10s %-20s %-10s %-10s %5d  %s\n",
 	       $topology, ($boot_time ? fmt_ts($boot_time) : ''),
 	       $experiment, $schedule, $datasize, fmt_time($run_ts);
+	# figure out the likely time required to run the file hash; this
+	# will be the timestamp the server shows some network activity,
+	# minus the first timestamp produced by the server
+	my @sums = @{ $dbh->selectall_arrayref($sum_handle, {}, @$run) };
+	my $timebase = $sums[0][0];
+	my ($start_time, $end_offset);
+	if ($exclude_checksum) {
+	    ($start_time) = map { $_->[0] } grep { $_->[1] } @sums;
+	    $end_offset = $start_time - $timebase;
+	} else {
+	    $start_time = $timebase;
+	    $end_offset = 0;
+	}
 	my @hosts = map { $_->[0] }
 		    @{ $dbh->selectall_arrayref($host_handle, {}, @$run) };
 	# determine when each client started and completed
@@ -217,41 +260,32 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	    # started and ended 1 second later than the timestamps suggest
 	    $end{$host} = $end + 1;
 	    $start{$host} = $end + 1 - int($wall_time / 1000 + .9);
+	    $end{$host} -= $end_offset;
 	}
 	# now extract the data required
 	my $fmt = "%4d $sep %7d";
 	my $title1 = " run $sep   num  ";
 	my $title2 = "time $sep clients";
+	my $title3 = "     $sep        ";
 	my %data;
 	my $column = 0;
 	my (@host_type, @key);
 	for my $what (@what) {
 	    my ($type, $key) = @$what;
+	    my ($name, $item, $scale, $format, $unit) = @{$what{$key}};
 	    my $tl = length $type;
 	    my @h = grep { substr($_, 0, $tl) eq $type } @hosts;
 	    my $h = join(' ', @h);
 	    my $tk = "$type\:$key";
-	    my ($sp0, $sp1);
-	    if (length($tk) < length($h)) {
-		my $l1 = length($h) - length($tk);
-		my $l2 = int($l1 / 2);
-		$l1 -= $l2;
-		$sp0 = $sp1 = '';
-		$title1 .= " $sep " . (' ' x $l1) . $tk . (' ' x $l2);
-		$title2 .= " $sep " . $h;
-	    } elsif (length($h) < length($tk)) {
-		my $l1 = length($tk) - length($h);
-		my $l2 = int($l1 / 2);
-		$l1 -= $l2;
-		$sp0 = ' ' x $l1;
-		$sp1 = ' ' x $l2;
-		$title1 .= " $sep " . $tk;
-		$title2 .= " $sep " . $sp0 . $h . $sp1;
-	    }
+	    my $clen = length($tk);
+	    $clen < length($h) and $clen = length($h);
+	    $clen < length($unit) and $clen = length($unit);
+	    $title1 .= " $sep " . adjust($tk, $clen);
+	    $title2 .= " $sep " . adjust($h, $clen);
+	    $title3 .= " $sep " . adjust($unit, $clen);
 	    $fmt .= " $sep";
 	    for my $h (@h) {
-		$fmt .= $sp0 . ' %' . (length $h) . 's' . $sp1;
-		my ($name, $item, $scale, $format) = @{$what{$key}};
+		$fmt .= " %${clen}s";
 		# get data for this host
 		my %D;
 		for my $kw (split(/\+/, $item)) {
@@ -274,14 +308,13 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	    }
 	}
 	$fmt .= "\n";
-	$do_print and print "$title1\n$title2\n";
+	$do_print and print "$title1\n$title2\n$title3\n";
 	my $nc = 0;
 	my $prev = 0;
-	my $timebase = undef;
 	my $clients_seen = 0;
 	my $countdown = 10;
 	for my $timestamp (sort { $a <=> $b } keys %data) {
-	    defined $timebase or $timebase = $timestamp;
+	    $timestamp < $start_time and next;
 	    my $old_nc = $nc;
 	    for my $t (values %start) {
 		$t > $prev && $t <= $timestamp and $nc++;
@@ -295,7 +328,7 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	    # this will stop retrieving results after the end of the experiment
 	    $nc == 0 && $clients_seen && $countdown-- < 1 and last;
 	    $prev = $timestamp;
-	    my @prn = ($timestamp - $timebase, $nc);
+	    my @prn = ($timestamp - $start_time, $nc);
 	    my $has_values = 0;
 	    for (my $i = 0; $i < $column; $i++) {
 		my $d = $data{$timestamp}[$i];
@@ -321,6 +354,10 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	    or $count{$dtop}{$experiment}{$schedule}{$datasize} = 0;
 	$count{$dtop}{$experiment}{$schedule}{$datasize}++;
     }
+    if (defined $tfile) {
+	close TFILE;
+	select STDOUT;
+    }
 }
 
 $odbh and $odbh->disconnect();
@@ -338,6 +375,15 @@ if ($count) {
 	    }
 	}
     }
+}
+
+sub adjust {
+    my ($s, $clen) = @_;
+    length($s) < $clen or return $s;
+    my $l2 = $clen - length($s);
+    my $l1 = int($l2 / 2);
+    $l2 -= $l1;
+    return (' ' x $l1) . $s . (' ' x $l2);
 }
 
 sub fmt_time {
