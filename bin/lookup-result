@@ -10,6 +10,7 @@ my $dbh = DBI->connect("dbi:SQLite:dbname=$database", '', '',
 		       { RaiseError => 1, ReadOnly => 1 });
 
 my %what = (
+    #            name          key                          scale  format  unit
     load     => ['lavg',       '1minute',                   0.01,  '%.2f', '' ],
 
     tx       => ['if1',        'bytes_sent',                1e-6,  '%.1f', 'MB/s' ],
@@ -26,7 +27,7 @@ my %what = (
     syscpu   => ['cpu',        'system',                    1e-3,  '%.3f', '' ],
     totcpu   => ['cpu',        'user+system',               1e-3,  '%.3f', '' ],
 
-    duration => ['experiment', 'wallclock',                 1e-3,  '%.3f', 'sec' ],
+#   duration => ['experiment', 'wallclock',                 1e-3,  '%.3f', 'sec' ],
 );
 
 my @where = ("host = 'server0'"); # see comment below
@@ -114,7 +115,7 @@ WHERE topology = ?
 GROUP BY host;
 EOF
 
-my $sum_handle = $dbh->prepare(<<EOF);
+my $tx_handle = $dbh->prepare(<<EOF);
 SELECT timestamp, value
 FROM run_data, lwmon_data
 WHERE run_data.run_id = lwmon_data.run_id
@@ -129,6 +130,22 @@ WHERE run_data.run_id = lwmon_data.run_id
   AND key = 'bytes_sent'
 ORDER BY timestamp
 LIMIT 30;
+EOF
+
+my $rx_handle = $dbh->prepare(<<EOF);
+SELECT MIN(timestamp), MAX(timestamp)
+FROM run_data, lwmon_data
+WHERE run_data.run_id = lwmon_data.run_id
+  AND topology = ?
+  AND boot_time = ?
+  AND experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND end_run = ?
+  AND host = ?
+  AND name = 'if1'
+  AND key = 'bytes_received'
+  AND value > 500
 EOF
 
 my $end_handle = $dbh->prepare(<<EOF);
@@ -239,30 +256,47 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	# figure out the likely time required to run the file hash; this
 	# will be the timestamp the server shows some network activity,
 	# minus the first timestamp produced by the server
-	my @sums = @{ $dbh->selectall_arrayref($sum_handle, {}, @$run) };
-	my $timebase = $sums[0][0];
+	my @tx = @{ $dbh->selectall_arrayref($tx_handle, {}, @$run) };
+	my $timebase = $tx[0][0];
 	my ($start_time, $end_offset);
 	if ($exclude_checksum) {
-	    ($start_time) = map { $_->[0] } grep { $_->[1] } @sums;
+	    ($start_time) = map { $_->[0] } grep { $_->[1] } @tx;
 	    $end_offset = $start_time - $timebase;
 	} else {
 	    $start_time = $timebase;
 	    $end_offset = 0;
 	}
-	my @hosts = map { $_->[0] }
+	my @uhosts = map { $_->[0] }
 		    @{ $dbh->selectall_arrayref($host_handle, {}, @$run) };
 	# determine when each client started and completed
-	my (%start, %end);
-	for my $host (@hosts) {
-	    $host =~ /^client/ or next;
-	    my ($end, $wall_time) = $dbh->selectrow_array($end_handle, {}, @$run, $host);
-	    defined $wall_time or next;
-	    # because all measurements are "the last second", we count clients as having
-	    # started and ended 1 second later than the timestamps suggest
-	    $end{$host} = $end + 1;
-	    $start{$host} = $end + 1 - int($wall_time / 1000 + .9);
-	    $end{$host} -= $end_offset;
+	my (%nc, @hosts, %uhosts);
+	for my $host (@uhosts) {
+	    if ($host =~ /^client(\d+)$/) {
+		$uhosts{$1} = 1;
+		my ($start, $end);
+		if (0) {
+		    my $wall_time;
+		    ($end, $wall_time) =
+			$dbh->selectrow_array($end_handle, {}, @$run, $host);
+		    defined $wall_time or next; # not supposed to happen
+		    # because all measurements are "the last second", we count
+		    # clients as having started and ended 1 second later than
+		    # the timestamps suggest
+		    $end++;
+		    $start = $end + 1 - int($wall_time / 1000 + .9);
+		    $end -= $end_offset;
+		} else {
+		    ($start, $end) = $dbh->selectrow_array($rx_handle, {}, @$run, $host);
+		}
+		while ($start <= $end) {
+		    exists $nc{$start} ? ($nc{$start}++) : ($nc{$start} = 1);
+		    $start++;
+		}
+	    } else {
+		push @hosts, $host;
+	    }
 	}
+	unshift @hosts, map { "client$_" }  sort { $a <=> $b } keys %uhosts;
 	# now extract the data required
 	my $fmt = "%4d $sep %7d";
 	my $title1 = " run $sep   num  ";
@@ -282,11 +316,12 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	    $clen < length($h) and $clen = length($h);
 	    $clen < length($unit) and $clen = length($unit);
 	    $title1 .= " $sep " . adjust($tk, $clen);
-	    $title2 .= " $sep " . adjust($h, $clen);
+	    my ($l1, $l2);
+	    $title2 .= " $sep " . adjust($h, $clen, \$l1, \$l2);
 	    $title3 .= " $sep " . adjust($unit, $clen);
-	    $fmt .= " $sep";
+	    $fmt .= " $sep$l1";
 	    for my $h (@h) {
-		$fmt .= " %${clen}s";
+		$fmt .= ' %' . (length $h) . 's';
 		# get data for this host
 		my %D;
 		for my $kw (split(/\+/, $item)) {
@@ -307,6 +342,7 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 		}
 		$column++;
 	    }
+	    $fmt .= $l2;
 	}
 	$fmt .= "\n";
 	$do_print and print "$title1\n$title2\n$title3\n";
@@ -317,13 +353,7 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	for my $timestamp (sort { $a <=> $b } keys %data) {
 	    $timestamp < $start_time and next;
 	    my $old_nc = $nc;
-	    for my $t (values %start) {
-		$t > $prev && $t <= $timestamp and $nc++;
-	    }
-	    $old_nc < $nc and $clients_seen = 1, $countdown = 10;
-	    for my $t (values %end) {
-		$t >= $prev && $t < $timestamp and $nc--;
-	    }
+	    $nc = $nc{$timestamp} || 0;
 	    # some early experiments keep going even though all clients have
 	    # terminated; now they automatically stop, but for old data,
 	    # this will stop retrieving results after the end of the experiment
@@ -379,12 +409,20 @@ if ($count) {
 }
 
 sub adjust {
-    my ($s, $clen) = @_;
-    length($s) < $clen or return $s;
-    my $l2 = $clen - length($s);
-    my $l1 = int($l2 / 2);
-    $l2 -= $l1;
-    return (' ' x $l1) . $s . (' ' x $l2);
+    my ($s, $clen, $p1, $p2) = @_;
+    my ($l1, $l2);
+    if (length($s) < $clen) {
+	$l2 = $clen - length($s);
+	$l1 = int($l2 / 2);
+	$l2 -= $l1;
+	$l1 = ' ' x $l1;
+	$l2 = ' ' x $l2;
+    } else {
+	$l1 = $l2 = '';
+    }
+    $p1 and $$p1 = $l1;
+    $p2 and $$p2 = $l2;
+    return $l1 . $s . $l2;
 }
 
 sub fmt_time {
