@@ -10,9 +10,13 @@ my $dbh = DBI->connect("dbi:SQLite:dbname=$database", '', '',
 		       { RaiseError => 1, ReadOnly => 1 });
 
 my (%type, %experiment, %schedule, %data, @data, $all_data,
-    %topology, $all_topologies, %sizes, @group, %gptr);
+    %topology, $all_topologies, $instance, %sizes, @group, %gptr, $output);
 while (@ARGV) {
     my $cmd = shift @ARGV;
+    if ($cmd =~ /^out(?:put)?=(.*)$/i) {
+	$output = $1;
+	next;
+    }
     if ($cmd =~ /^(?:client|router|server)$/i) {
 	$type{lc $cmd} = 1;
 	next;
@@ -43,6 +47,10 @@ while (@ARGV) {
     }
     if (lc($cmd) eq 'all_topologies' || lc($cmd) eq 'an') {
 	$all_topologies = 1;
+	next;
+    }
+    if (lc($cmd) eq 'instance' || lc($cmd) eq 'inst') {
+	$instance = 1;
 	next;
     }
     if ($cmd =~ /^\d+$/) {
@@ -110,15 +118,65 @@ my %unit = (
 
 my %group;
 
-if ($all_topologies) {
+if ($all_topologies || $instance) {
     for my $tp (@{ $dbh->selectall_arrayref('SELECT topology FROM lwmon_summary GROUP BY topology;') }) {
 	$topology{$tp->[0]} = 1;
     }
 }
 if (keys %topology) {
-    (grep { $_ < 0 || $_ > 4 } @group) and die "Invalid group @group\n";
-    my $rdata = $dbh->prepare(<<EOF);
-SELECT n_clients, total / count
+    if ($instance) {
+	(grep { $_ < 0 || $_ > 5 } @group)
+	    and die "Invalid group @{[map { $_+1 } @group]}\n";
+	my $ilist = $dbh->prepare(<<EOF);
+SELECT instance
+FROM lwmon_summary
+WHERE topology = ?
+GROUP BY instance
+EOF
+	my $rdata = $dbh->prepare(<<EOF);
+SELECT n_clients, count, total, square
+FROM lwmon_summary
+WHERE experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND host_type = ?
+  AND topology = ?
+  AND instance = ?
+  AND key = ?
+ORDER BY n_clients
+EOF
+	my $rkeys = $dbh->prepare(<<EOF);
+SELECT key
+FROM lwmon_summary
+WHERE experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND host_type = ?
+  AND topology = ?
+  AND instance = ?
+GROUP BY key
+EOF
+	for my $topology (sort keys %topology) {
+	    for my $ip (@{ $dbh->selectall_arrayref($ilist, {}, $topology) }) {
+		my $instance = $ip->[0];
+		for my $experiment (sort keys %experiment) {
+		    for my $schedule (sort keys %schedule) {
+			for my $size (sort keys %sizes) {
+			    for my $type (sort keys %type) {
+				show_data($rdata, $rkeys,
+					  $experiment, $schedule, $size, $type,
+					  $topology, $instance);
+			    }
+			}
+		    }
+		}
+	    }
+	}
+    } else {
+	(grep { $_ < 0 || $_ > 4 } @group)
+	    and die "Invalid group @{[map { $_+1 } @group]}\n";
+	my $rdata = $dbh->prepare(<<EOF);
+SELECT n_clients, count, total, square
 FROM lwmon_summary
 WHERE experiment = ?
   AND schedule = ?
@@ -128,7 +186,7 @@ WHERE experiment = ?
   AND key = ?
 ORDER BY n_clients
 EOF
-    my $rkeys = $dbh->prepare(<<EOF);
+	my $rkeys = $dbh->prepare(<<EOF);
 SELECT key
 FROM lwmon_summary
 WHERE experiment = ?
@@ -138,22 +196,23 @@ WHERE experiment = ?
   AND topology = ?
 GROUP BY key
 EOF
-    for my $topology (sort keys %topology) {
-	for my $experiment (sort keys %experiment) {
-	    for my $schedule (sort keys %schedule) {
-		for my $size (sort keys %sizes) {
-		    for my $type (sort keys %type) {
-			show_data($rdata, $rkeys,
-				  $experiment, $schedule, $size, $type, $topology);
+	for my $topology (sort keys %topology) {
+	    for my $experiment (sort keys %experiment) {
+		for my $schedule (sort keys %schedule) {
+		    for my $size (sort keys %sizes) {
+			for my $type (sort keys %type) {
+			    show_data($rdata, $rkeys,
+				      $experiment, $schedule, $size, $type, $topology);
+			}
 		    }
 		}
 	    }
 	}
     }
 } else {
-    (grep { $_ < 0 || $_ > 3 } @group) and die "Invalid group @group\n";
+    (grep { $_ < 0 || $_ > 3 } @group) and die "Invalid group @{[map { $_+1 } @group]}\n";
     my $rdata = $dbh->prepare(<<EOF);
-SELECT n_clients, SUM(total) / SUM(count)
+SELECT n_clients, SUM(count), SUM(total), SUM(square)
 FROM lwmon_summary
 WHERE experiment = ?
   AND schedule = ?
@@ -186,6 +245,14 @@ EOF
 $dbh->disconnect();
 
 for my $gn (sort keys %group) {
+    my $dest;
+    if (defined $output) {
+	print "$gn\n";
+	($dest = $gn) =~ s/\s+/./g;
+	$dest = sprintf $output, $dest;
+	open(OFILE, '>', $dest) or die "$dest: $!\n";
+	select OFILE;
+    }
     print "$gn:\n";
     my $title1 = '';
     my $title2 = '';
@@ -201,12 +268,16 @@ for my $gn (sort keys %group) {
 	    $rows[$i] .= '  ' . $n;
 	}
     }
-    print "n_clients $title1\n          $title2\n";
+    print "#clients$title1\n        $title2\n";
     for (my $i = 0; $i < @rows; $i++) {
 	defined $rows[$i] && $rows[$i] =~ /\S/ or next;
-	printf "%9d %s\n", $i, $rows[$i];
+	printf "%8d%s\n", $i, $rows[$i];
     }
     print "\n";
+    if (defined $output) {
+	select STDOUT;
+	close OFILE or die "$dest: $!\n";
+    }
 }
 
 sub adjust {
@@ -239,16 +310,27 @@ sub show_data {
     for my $data (@sdata) {
 	my $prndata = $data;
 	exists $unit{$data} and $prndata .= "($unit{$data})";
+	$prndata .= ' (num,  std)';
 	my $len = length $prndata;
 	my @column;
 	for my $dp (@{ $dbh->selectall_arrayref($rdata, {}, @parms, $data) }) {
-	    my ($nc, $num) = @$dp;
-	    defined $num or next;
+	    my ($nc, $count, $total, $square) = @$dp;
+	    defined $count && $count > 0 or next;
+	    my $avg = $total / $count;
+	    my $std = ')      ';
+	    if ($count > 1) {
+		my $var = ($square - 2 * $avg * $total + $avg * $avg * $count)
+			/ ($count - 1);
+		# avoid square root of "-0"
+		$var < 0 && $var > -1e-10 and $var = 0;
+		$std = sprintf ",%5.1f)", sqrt($var);
+	    }
 	    $max_clients < $nc and $max_clients = $nc;
-	    exists $scale{$data} and $num *= $scale{$data};
-	    exists $fmt{$data} and $num = sprintf $fmt{$data}, $num;
-	    $len < length $num and $len = length $num;
-	    $column[$nc] = $num;
+	    exists $scale{$data} and $avg *= $scale{$data};
+	    exists $fmt{$data} and $avg = sprintf $fmt{$data}, $avg;
+	    my $disp = sprintf "%s %5s%s", $avg, "($count", $std;
+	    $len < length $disp and $len = length $disp;
+	    $column[$nc] = $disp;
 	}
 	push @values, \@column;
 	$len += 2;
@@ -257,14 +339,19 @@ sub show_data {
 	$title2 .= sprintf "%${len}s", $prndata;
     }
     $max_clients >= 0 or return;
-    my ($gindex, $grest, @gdata);
+    my ($gindex, $grest, @gdata, $dest);
     if (@group) {
 	$gindex = join(' ', @parms[@group]);
 	$grest = join(' ', map { $parms[$_] } grep { ! exists $gptr{$_} } (0..$#parms));
 	$glen < length $grest and $glen = length $grest;
 	$glen < length $title2 and $glen = length $title2;
     } else {
-	print $title1, "\nn_clients", $title2, "\n";
+	if (defined $output) {
+	    $dest = sprintf $output, join('.', @parms);
+	    open(OFILE, '>', $dest) or die "$dest: $!\n";
+	    select OFILE;
+	}
+	print $title1, "\n#clients", $title2, "\n";
     }
     for (my $i = 0; $i <= $max_clients; $i++) {
 	my $row = '';
@@ -281,13 +368,17 @@ sub show_data {
 	if (@group) {
 	    $gdata[$i] = $row;
 	} else {
-	    printf "%9d%s\n", $i, $row;
+	    printf "%8d%s\n", $i, $row;
 	}
     }
     if (@group) {
 	push @{$group{$gindex}}, [$glen, $grest, $title2, $max_clients, \@gdata];
     } else {
 	print "\n";
+	if (defined $output) {
+	    select STDOUT;
+	    close OFILE or die "$dest: $!\n";
+	}
     }
 }
 

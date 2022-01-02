@@ -32,6 +32,8 @@ my %what = (
 
 my @where = ("host = 'server0'"); # see comment below
 my (@what, $count, $output, $tfile, $exclude_checksum);
+# minimum value of client RX below which we flag things as not quite right
+my $minrx = 400;
 while (@ARGV) {
     my $cmd = shift @ARGV;
     if ($cmd =~ /^run=(\d+)$/i) {
@@ -64,6 +66,10 @@ while (@ARGV) {
 	push @what, [$type, $key];
 	next;
     }
+    if ($cmd =~ /^minrx=(\d+)$/) {
+	$minrx = $1;
+	next;
+    }
     if ($cmd eq 'all') {
 	for my $type (qw(client router server)) {
 	    for my $key (keys %what) {
@@ -91,6 +97,10 @@ while (@ARGV) {
     die "Unknown command: $cmd\n";
 }
 $count || @what or die "No data requested\n";
+
+# including MIME::Base64 or similar to just have a shorter instance string...
+# or add 8 lines in total?
+my $b36 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 # find all runs: we know a network must have a server0, as there is always
 # at least 1 server; all other hosts will share the same information for
@@ -145,11 +155,11 @@ WHERE run_data.run_id = lwmon_data.run_id
   AND host = ?
   AND name = 'if1'
   AND key = 'bytes_received'
-  AND value > 500
+  AND value > ?
 EOF
 
 my $end_handle = $dbh->prepare(<<EOF);
-SELECT timestamp, value
+SELECT value
 FROM run_data, lwmon_data
 WHERE run_data.run_id = lwmon_data.run_id
   AND topology = ?
@@ -160,7 +170,7 @@ WHERE run_data.run_id = lwmon_data.run_id
   AND end_run = ?
   AND host = ?
   AND name = 'experiment'
-  AND key = 'wallclock';
+  AND key = 'status';
 EOF
 
 my $data_handle = $dbh->prepare(<<EOF);
@@ -190,6 +200,7 @@ CREATE TABLE IF NOT EXISTS lwmon_summary (
     datasize INT,
     host_type VARCHAR(255),
     topology VARCHAR(255),
+    instance VARCHAR(255),
     n_clients INT,
     key VARCHAR(255),
     count INT,
@@ -199,7 +210,7 @@ CREATE TABLE IF NOT EXISTS lwmon_summary (
 EOF
     run_update(<<EOF, 1);
 CREATE INDEX IF NOT EXISTS lwmon_summary_type
-ON lwmon_summary(experiment, schedule, datasize, host_type, topology, n_clients, key);
+ON lwmon_summary(experiment, schedule, datasize, host_type, topology, instance, n_clients, key);
 EOF
     $exists_handle = $odbh->prepare(<<EOF);
 SELECT COUNT(*) FROM lwmon_summary
@@ -207,14 +218,16 @@ WHERE experiment = ?
   AND schedule = ?
   AND datasize = ?
   AND topology = ?
+  AND instance = ?
   AND host_type = ?
   AND n_clients = ?
   AND key = ?;
 EOF
     $insert_handle = $odbh->prepare(<<EOF);
 INSERT INTO lwmon_summary
-(total, square, experiment, schedule, datasize, topology, host_type, n_clients, key, count)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
+(total, square, experiment, schedule, datasize,
+ topology, instance, host_type, n_clients, key, count)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
 EOF
     $update_handle = $odbh->prepare(<<EOF);
 UPDATE lwmon_summary
@@ -223,6 +236,7 @@ WHERE experiment = ?
   AND schedule = ?
   AND datasize = ?
   AND topology = ?
+  AND instance = ?
   AND host_type = ?
   AND n_clients = ?
   AND key = ?;
@@ -233,6 +247,7 @@ my $sep = ' ';
 #my $sep = '|';
 my %count;
 my $do_print = ! $odbh;
+RUN:
 for my $run (sort { $a->[5] <=> $b->[5] ||
 		    $a->[2] cmp $b->[2] ||
 		    $a->[3] cmp $b->[3] ||
@@ -248,10 +263,12 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	select TFILE;
     }
     my $dtop = $topology;
-    $dtop =~ s/\D+$//;
+    my $instance = b36($boot_time, 7);
+    $dtop =~ s/(\D+)$// and $instance .= $1;
     if (@what) {
+	(my $tarname = join('-', @$run) . '.tar.gz') =~ s/-/:/;
 	printf "RUN: %-10s %-20s %-10s %-10s %5d  %s\n",
-	       $topology, ($boot_time ? fmt_ts($boot_time) : ''),
+	       $topology, fmt_ts($boot_time),
 	       $experiment, $schedule, $datasize, fmt_time($run_ts);
 	# figure out the likely time required to run the file hash; this
 	# will be the timestamp the server shows some network activity,
@@ -266,27 +283,45 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	    $start_time = $timebase;
 	    $end_offset = 0;
 	}
+	my $n_failed = 0;
 	my @uhosts = map { $_->[0] }
-		    @{ $dbh->selectall_arrayref($host_handle, {}, @$run) };
+		     @{ $dbh->selectall_arrayref($host_handle, {}, @$run) };
 	# determine when each client started and completed
 	my (%nc, @hosts, %uhosts);
 	for my $host (@uhosts) {
+	    # check that each host has actually logged an "end of experiment"
+	    # entry: if that is missing, it's likely the data file has been
+	    # truncated, so we want to at least produce a warning
+	    my ($status) = $dbh->selectrow_array($end_handle, {}, @$run, $host);
+	    if (! defined $status) {
+		print STDERR "MISSING END OF EXPERIMENT:  TAR=$tarname HOST=$host\n";
+		next RUN; # cannot use this, we have lost data
+	    }
 	    if ($host =~ /^client(\d+)$/) {
+		# a client ending with nonzero status indicates an error
+		# this is not the case for servers or routers which may
+		# have the daemon killed and end with status 15 (SIGTERM)
+		$status and $n_failed++;
 		$uhosts{$1} = 1;
-		my ($start, $end);
-		if (0) {
-		    my $wall_time;
-		    ($end, $wall_time) =
-			$dbh->selectrow_array($end_handle, {}, @$run, $host);
-		    defined $wall_time or next; # not supposed to happen
-		    # because all measurements are "the last second", we count
-		    # clients as having started and ended 1 second later than
-		    # the timestamps suggest
-		    $end++;
-		    $start = $end + 1 - int($wall_time / 1000 + .9);
-		    $end -= $end_offset;
-		} else {
-		    ($start, $end) = $dbh->selectrow_array($rx_handle, {}, @$run, $host);
+		my ($start, $end) =
+		    $dbh->selectrow_array($rx_handle, {}, @$run, $host, $minrx);
+		if (! defined $end) {
+		    ($start, $end) =
+			$dbh->selectrow_array($rx_handle, {}, @$run, $host, 0);
+		    if (! defined $end) {
+			# if there's still no network data, something must have
+			# gone wrong when recording this experiment, and we are
+			# better off removing it from the input - so we produce
+			# a warning about this
+			print STDERR "NO RX DATA:  TAR=$tarname HOST=$host\n";
+			next;
+		    }
+		    # we may also note when a client has never recorded more than
+		    # $minrx0 bytes/second, as that's quite unlikely when downloading
+		    # megabytes of stuff, however it could happen if the client
+		    # failed to connect; we print a warning and somebody will
+		    # check the data manually
+		    $status or print STDERR "LOW RX DATA:  TAR=$tarname HOST=$host\n";
 		}
 		while ($start <= $end) {
 		    exists $nc{$start} ? ($nc{$start}++) : ($nc{$start} = 1);
@@ -368,7 +403,7 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 		} else {
 		    $has_values = 1;
 		    if ($odbh) {
-			add_data($experiment, $schedule, $datasize, $dtop,
+			add_data($experiment, $schedule, $datasize, $dtop, $instance,
 				 $host_type[$i], $nc, $key[$i], $d);
 		    }
 		}
@@ -377,13 +412,14 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	    $has_values or next;
 	    $do_print and printf $fmt, @prn;
 	}
+	$n_failed && $do_print and print "*** $n_failed clients failed to complete\n";
 	$do_print and print "\n";
 	$odbh and run_update(undef, 1);
     }
     if ($count) {
-	defined $count{$dtop}{$experiment}{$schedule}{$datasize}
-	    or $count{$dtop}{$experiment}{$schedule}{$datasize} = 0;
-	$count{$dtop}{$experiment}{$schedule}{$datasize}++;
+	defined $count{$dtop}{$instance}{$experiment}{$schedule}{$datasize}
+	    or $count{$dtop}{$instance}{$experiment}{$schedule}{$datasize} = 0;
+	$count{$dtop}{$instance}{$experiment}{$schedule}{$datasize}++;
     }
     if (defined $tfile) {
 	close TFILE;
@@ -395,17 +431,32 @@ $odbh and $odbh->disconnect();
 $dbh->disconnect();
 
 if ($count) {
+    my $atotal = 0;
+    my $itotal = 0;
     for my $topology (sort { $a cmp $b } keys %count) {
-	for my $experiment (sort { $a cmp $b } keys %{$count{$topology}}) {
-	    for my $schedule (sort { $a cmp $b } keys %{$count{$topology}{$experiment}}) {
-		for my $datasize (sort { $a <=> $b } keys %{$count{$topology}{$experiment}{$schedule}}) {
-		    printf "%3d: %-10s %-10s %-10s %5d\n",
-			   $count{$topology}{$experiment}{$schedule}{$datasize},
-			   $topology, $experiment, $schedule, $datasize;
+	my $ttotal = 0;
+	my $icount = keys %{$count{$topology}};
+	for my $inst (sort { $a cmp $b } keys %{$count{$topology}}) {
+	    for my $experiment (sort { $a cmp $b } keys %{$count{$topology}{$inst}}) {
+		for my $schedule (sort { $a cmp $b }
+		    keys %{$count{$topology}{$inst}{$experiment}})
+		{
+		    for my $datasize (sort { $a <=> $b }
+			keys %{$count{$topology}{$inst}{$experiment}{$schedule}})
+		    {
+			my $v = $count{$topology}{$inst}{$experiment}{$schedule}{$datasize};
+			printf "%4d: %-8s %-9s %-10s %-10s %5d\n",
+			       $v, $topology, $inst, $experiment, $schedule, $datasize;
+			$ttotal += $v;
+		    }
 		}
 	    }
 	}
+	printf "%4d: %-8s (total on %d testbeds)\n\n", $ttotal, $topology, $icount;
+	$atotal += $ttotal;
+	$itotal += $icount;
     }
+    printf "%4d (total on %d testbeds)\n", $atotal, $itotal;
 }
 
 sub adjust {
@@ -456,5 +507,15 @@ sub add_data {
     } else {
 	$insert_handle->execute($value, $square, @data);
     }
+}
+
+sub b36 {
+    my ($v, $l) = @_;
+    my $r = '';
+    while ($l-- > 0 || $v > 0) {
+	$r = substr($b36, $v % 36, 1) . $r;
+	$v = int($v / 36);
+    }
+    $r;
 }
 
