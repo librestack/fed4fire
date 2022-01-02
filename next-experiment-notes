@@ -1,0 +1,42 @@
+* make sure things start in the right order:
+  + routers need to notify the director when they are ready (for multicast,
+    when the routing daemon has finished initialising, for unicast they are
+    already ready)
+  + director waits for all routers to be ready before starting servers
+  + servers notify director when they are ready (finished calculating
+    file checksum and any other initialisation)
+  + director waits for all servers to be ready becore starting clients
+
+* improve the way we determine how many clients are active:
+  + servers log a packet to the local lwmon when various events happen:
+    - server ready
+    - client connects
+    - end client service
+  + when processing data, the "connects" and "end service" logs can be
+    used directly to increment and decrement the number of active clients
+    so all other logs have a precise number of active clients
+  + for multicast, we'll need to have MLD triggering or at least monitoring
+    to know when client "connects" and "ends"
+  + for scp, we presumably need to read auth.log
+
+* always start a set of runs with a special "null" experiment in which all
+  nodes measure the effect of running "sleep" to have baseline values for
+  all measurements
+
+* run a basic system test to make sure things like packet loss etc are known
+
+* do not import all data into a database, instead extract all files and
+  build just an index to them in the database
+
+* have the director do some basic checks on the data it receives, for example
+  that all report include an "end of experiment" log, maybe with a sleep and
+  recheck if it's missing (rsync may be retrying); but if it is definitely
+  missing, automatically abort and repeat the experiment if there's a problem
+  (up to some reasonable number of retries)
+
+* add another dimension (we already have three affecting each run: update type,
+  scheduling, data size): number of clients per node; this would let us test
+  with more clients but it's automatically skewed in favour of multicast, and
+  one would need to ask if this is a real-world "IoT update" situation when
+  one expects a small embedded device to have 1 update client
+

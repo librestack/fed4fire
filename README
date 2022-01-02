@@ -160,3 +160,27 @@ e.g. for multicast and scp experiments, "immediate" scheduling and 2048 MB:
 
 ./bin/get-summary summary.sqlite server usercpu multicast scp immediate 2048
 
+For a comprehensive set of summary data given the database with all inputs
+in ~/DB/jfed.sqlite:
+
+mkdir -p /tmp/jfed
+# Rebuild summary DB:
+rm ~/DB/summary.sqlite
+lookup-result ~/DB/jfed.sqlite all out=~/DB/summary.sqlite
+# "by testbed" files:
+mkdir /tmp/jfed/by-number-and-testbed
+get-summary ~/DB/summary.sqlite instance an server totcpu mem tx ae as az \
+  out=/tmp/jfed/by-number-and-testbed/%s.txt group=2,3,4,5,6
+# "by topology" files:
+mkdir /tmp/jfed/by-number-and-topology
+get-summary ~/DB/summary.sqlite an server totcpu mem tx ae as az \
+  out=/tmp/jfed/by-number-and-topology/%s.txt group=2,3,4,5
+# "by number of clients" files:
+mkdir /tmp/jfed/by-number
+bin/get-summary ~/DB/summary.sqlite server totcpu mem tx ae as az \
+  out=/tmp/jfed/by-number/%s.txt group=2,3,4
+# "all runs" files:
+mkdir /tmp/jfed/runs
+lookup-result ~/DB/jfed.sqlite server:tx server:load \
+  server:totcpu server:mem txt=/tmp/jfed/runs/%s.txt
+
