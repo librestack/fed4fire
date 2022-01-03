@@ -173,6 +173,20 @@ WHERE run_data.run_id = lwmon_data.run_id
   AND key = 'status';
 EOF
 
+my $status_handle = $dbh->prepare(<<EOF);
+SELECT key, value
+FROM run_data, lwmon_data
+WHERE run_data.run_id = lwmon_data.run_id
+  AND topology = ?
+  AND boot_time = ?
+  AND experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND end_run = ?
+  AND host = ?
+  AND name = 'experiment';
+EOF
+
 my $data_handle = $dbh->prepare(<<EOF);
 SELECT timestamp, value
 FROM run_data, lwmon_data
@@ -283,7 +297,7 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	    $start_time = $timebase;
 	    $end_offset = 0;
 	}
-	my $n_failed = 0;
+	my @failed = ();
 	my @uhosts = map { $_->[0] }
 		     @{ $dbh->selectall_arrayref($host_handle, {}, @$run) };
 	# determine when each client started and completed
@@ -301,7 +315,7 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 		# a client ending with nonzero status indicates an error
 		# this is not the case for servers or routers which may
 		# have the daemon killed and end with status 15 (SIGTERM)
-		$status and $n_failed++;
+		$status and push @failed, $host;
 		$uhosts{$1} = 1;
 		my ($start, $end) =
 		    $dbh->selectrow_array($rx_handle, {}, @$run, $host, $minrx);
@@ -412,7 +426,42 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	    $has_values or next;
 	    $do_print and printf $fmt, @prn;
 	}
-	$n_failed && $do_print and print "*** $n_failed clients failed to complete\n";
+	if ($do_print && @failed) {
+	    print "*** the following ", scalar @failed, " clients failed to complete:\n";
+	    for my $host (@failed) {
+		my %status = map { ($_->[0], $_->[1]) }
+			     @{ $dbh->selectall_arrayref($status_handle, {}, @$run, $host) };
+		if (keys %status) {
+		    my $exit = $status{status};
+		    if (! defined $exit) {
+			$exit = "(exit status not recorded)";
+		    } elsif ($exit & 0xff) {
+			$exit = "terminated with signal: " . ($exit & 0x7f);
+		    } else {
+			$exit = "exit code: " . ($exit >> 8);
+		    }
+		    my $wall = $status{wallclock};
+		    if (! defined $wall) {
+			$wall = "(duration not recorded)";
+		    } elsif ($wall < 60000) {
+			$wall = sprintf "duration: %.3fs", $wall / 1000;
+		    } elsif ($wall < 3600) {
+			my $min = int($wall / 60000);
+			$wall -= $min * 60000;
+			$wall = sprintf "duration: %dm %.3fs", $min, $wall / 1000;
+		    } else {
+			my $min = int($wall / 60000);
+			$wall -= $min * 60000;
+			my $hr = int($min / 60);
+			$min -= $hr * 60;
+			$wall = sprintf "duration: %dh %dm %.3fs", $hr, $min, $wall / 1000;
+		    }
+		    print "$host - $wall; $exit\n";
+		} else {
+		    print "$host - missing client completion log from data\n";
+		}
+	    }
+	}
 	$do_print and print "\n";
 	$odbh and run_update(undef, 1);
     }
