@@ -83,37 +83,43 @@ keys %sizes or die "No sizes selected\n";
 $all_data || @data or die "No data requested\n";
 
 my %fmt = (
-    mem      => '%.2f',
-    swap     => '%.2f',
+    mem         => '%.2f',
+    swap        => '%.2f',
 
-    rx       => '%.2f',
-    rx2      => '%.2f',
-    tx       => '%.2f',
-    tx2      => '%.2f',
-    net      => '%.2f',
-    net2     => '%.2f',
+    rx          => '%.2f',
+    rx2         => '%.2f',
+    tx          => '%.2f',
+    tx2         => '%.2f',
+    net         => '%.2f',
+    net2        => '%.2f',
 
-    load     => '%.3f',
-    syscpu   => '%.3f',
-    totcpu   => '%.3f',
-    usercpu  => '%.3f',
+    load        => '%.3f',
+    syscpu      => '%.3f',
+    totcpu      => '%.3f',
+    usercpu     => '%.3f',
 
-    duration => '%.3f',
+    duration    => '%.3f',
+    update_time => '%.3f',
+
+    (map { ("if$_.sent" => '%.2f', "if$_.received" => '%.2f') } (1, 2, 3)),
 );
 
-my %scale = (
-);
+my %scale = (); # map { ("if$_.sent" => 1e-6, "if$_.received" => 1e-6) } (1, 2, 3);
 
 my %unit = (
-    mem     => 'MB',
-    swap    => 'MB',
+    mem         => 'MB',
+    swap        => 'MB',
 
-    rx      => 'MB/s',
-    rx2     => 'MB/s',
-    tx      => 'MB/s',
-    tx2     => 'MB/s',
-    net     => 'MB/s',
-    net2    => 'MB/s',
+    rx          => 'MB/s',
+    rx2         => 'MB/s',
+    tx          => 'MB/s',
+    tx2         => 'MB/s',
+    net         => 'MB/s',
+    net2        => 'MB/s',
+
+    update_time => 'sec',
+
+    (map { ("if$_.sent" => 'MB', "if$_.received" => 'MB') } (1, 2, 3)),
 );
 
 my %group;
@@ -323,7 +329,9 @@ sub show_data {
 			/ ($count - 1);
 		# avoid square root of "-0"
 		$var < 0 && $var > -1e-10 and $var = 0;
-		$std = sprintf ",%5.1f)", sqrt($var);
+		$std = sqrt($var),
+		exists $scale{$data} and $std *= $scale{$data};
+		$std = sprintf ",%5.1f)", $std;
 	    }
 	    $max_clients < $nc and $max_clients = $nc;
 	    exists $scale{$data} and $avg *= $scale{$data};
