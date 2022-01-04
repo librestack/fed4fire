@@ -255,19 +255,19 @@ for my $gn (sort keys %group) {
     my $title2 = '';
     my @rows;
     for my $gp (@{$group{$gn}}) {
-	my ($glen, $grest, $title, $max_clients, $gdata) = @$gp;
+	my ($glen, $gempty, $grest, $title, $max_clients, $gdata) = @$gp;
 	$title1 .= '  ' . adjust($grest, $glen);
 	$title2 .= '  ' . adjust($title, $glen);
 	for (my $i = 0; $i <= $max_clients; $i++) {
 	    my $n = $gdata->[$i];
-	    defined $n or $n = ' ' x $glen;
+	    defined $n or $n = $gempty;
 	    defined $rows[$i] or $rows[$i] = '';
 	    $rows[$i] .= '  ' . $n;
 	}
     }
     print "#clients$title1\n        $title2\n";
     for (my $i = 0; $i < @rows; $i++) {
-	defined $rows[$i] && $rows[$i] =~ /\S/ or next;
+	defined $rows[$i] && $rows[$i] =~ /[\.\d]/ or next;
 	printf "%8d%s\n", $i, $rows[$i];
     }
     print "\n";
@@ -304,31 +304,34 @@ sub show_data {
 	}
     }
     my $glen = 0;
+    my $gempty = '';
     for my $dp (@sdata) {
 	my ($type, $key) = @$dp;
 	my $prndata = $key;
 	exists $unit{$key} and $prndata .= "($unit{$key})";
-	$prndata .= ' (num,  std)';
+	$prndata .= ' num   std';
 	my $len = length $prndata;
 	my @column;
 	for my $dp (@{ $dbh->selectall_arrayref($rdata, {}, @parms, $type, $key) }) {
 	    my ($nc, $count, $total, $square) = @$dp;
 	    defined $count && $count > 0 or next;
 	    my $avg = $total / $count;
-	    my $std = ')      ';
+	    my $std;
 	    if ($count > 1) {
 		my $var = ($square - 2 * $avg * $total + $avg * $avg * $count)
 			/ ($count - 1);
 		# avoid square root of "-0"
 		$var < 0 && $var > -1e-10 and $var = 0;
-		$std = sqrt($var),
+		$std = sqrt($var);
 		exists $scale{$key} and $std *= $scale{$key};
-		$std = sprintf ",%5.1f)", $std;
+		$std = sprintf " %5.1f", $std;
+	    } else {
+		$std = '     -';
 	    }
 	    $max_clients < $nc and $max_clients = $nc;
 	    exists $scale{$key} and $avg *= $scale{$key};
 	    exists $fmt{$key} and $avg = sprintf $fmt{$key}, $avg;
-	    my $disp = sprintf "%s %5s%s", $avg, "($count", $std;
+	    my $disp = sprintf "%s %5d%s", $avg, $count, $std;
 	    $len < length $disp and $len = length $disp;
 	    $column[$nc] = $disp;
 	}
@@ -336,6 +339,7 @@ sub show_data {
 	$len += 2;
 	push @space, $len;
 	$glen += $len;
+	$gempty .= sprintf "%${len}s", '-     -     -';
 	$title2 .= sprintf "%${len}s", $prndata;
     }
     $max_clients >= 0 or return;
@@ -357,12 +361,13 @@ sub show_data {
 	my $row = '';
 	my $has_data = 0;
 	for (my $j = 0; $j < @space; $j++) {
-	    if (defined $values[$j][$i]) {
+	    my $v = $values[$j][$i];
+	    if (defined $v) {
 		$has_data = 1;
-		$row .= sprintf "%$space[$j]s", $values[$j][$i];
 	    } else {
-		$row .= ' ' x $space[$j];
+		$v = '-     -     -';
 	    }
+	    $row .= sprintf "%$space[$j]s", $v;
 	}
 	$has_data or next;
 	if (@group) {
@@ -372,7 +377,7 @@ sub show_data {
 	}
     }
     if (@group) {
-	push @{$group{$gindex}}, [$glen, $grest, $title2, $max_clients, \@gdata];
+	push @{$group{$gindex}}, [$glen, $gempty, $grest, $title2, $max_clients, \@gdata];
     } else {
 	print "\n";
 	if (defined $output) {

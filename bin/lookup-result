@@ -413,7 +413,7 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 	    for (my $i = 0; $i < $column; $i++) {
 		my $d = $data{$timestamp}[$i];
 		if (! defined $d) {
-		    $d = '';
+		    $d = '-';
 		} else {
 		    $has_values = 1;
 		    if ($odbh) {

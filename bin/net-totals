@@ -401,7 +401,7 @@ sub avg {
 	printf OF "    %-20s   %8.3f  %5d   %7.1f\n", $title, $avg, $count, $std
 	    or die "$ofile: $!\n";
     } else {
-	printf OF "    %-20s   %8.3f  %5d\n", $title, $avg, $count
+	printf OF "    %-20s   %8.3f  %5d         -\n", $title, $avg, $count
 	    or die "$ofile: $!\n";
     }
 }
