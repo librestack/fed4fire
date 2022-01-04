@@ -254,10 +254,15 @@ for my $gn (sort keys %group) {
     my $title1 = '';
     my $title2 = '';
     my @rows;
+    my $max_clients = 0;
     for my $gp (@{$group{$gn}}) {
-	my ($glen, $gempty, $grest, $title, $max_clients, $gdata) = @$gp;
-	$title1 .= '  ' . adjust($grest, $glen);
-	$title2 .= '  ' . adjust($title, $glen);
+	my ($glen, $gempty, $grest, $title, $mc, $gdata) = @$gp;
+	$max_clients < $mc and $max_clients = $mc;
+    }
+    for my $gp (@{$group{$gn}}) {
+	my ($glen, $gempty, $grest, $title, $mc, $gdata) = @$gp;
+	$title1 .= '  ' . adjust($grest, $glen, '-');
+	$title2 .= '  ' . adjust($title, $glen, ' ');
 	for (my $i = 0; $i <= $max_clients; $i++) {
 	    my $n = $gdata->[$i];
 	    defined $n or $n = $gempty;
@@ -278,12 +283,16 @@ for my $gn (sort keys %group) {
 }
 
 sub adjust {
-    my ($s, $clen) = @_;
+    my ($s, $clen, $pad) = @_;
+    length($s) < $clen or return $s;
+    $s .= ' ';
+    length($s) < $clen or return $s;
+    $s = ' ' . $s;
     length($s) < $clen or return $s;
     my $l2 = $clen - length($s);
     my $l1 = int($l2 / 2);
     $l2 -= $l1;
-    return (' ' x $l1) . $s . (' ' x $l2);
+    return ($pad x $l1) . $s . ($pad x $l2);
 }
 
 sub show_data {
@@ -347,8 +356,10 @@ sub show_data {
     if (@group) {
 	$gindex = join(' ', @parms[@group]);
 	$grest = join(' ', map { $parms[$_] } grep { ! exists $gptr{$_} } (0..$#parms));
+	my $oglen = $glen;
 	$glen < length $grest and $glen = length $grest;
 	$glen < length $title2 and $glen = length $title2;
+	$oglen < $glen and $gempty = (' ' x ($glen - $oglen)) . $gempty;
     } else {
 	if (defined $output) {
 	    $dest = sprintf $output, join('.', @parms);
