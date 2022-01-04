@@ -9,7 +9,7 @@ my $database = shift @ARGV;
 my $dbh = DBI->connect("dbi:SQLite:dbname=$database", '', '',
 		       { RaiseError => 1, ReadOnly => 1 });
 
-my (%type, %experiment, %schedule, %data, @data, $all_data,
+my (%experiment, %schedule, %data, @data, $all_data,
     %topology, $all_topologies, $instance, %sizes, @group, %gptr, $output);
 while (@ARGV) {
     my $cmd = shift @ARGV;
@@ -17,12 +17,11 @@ while (@ARGV) {
 	$output = $1;
 	next;
     }
-    if ($cmd =~ /^(?:client|router|server)$/i) {
-	$type{lc $cmd} = 1;
-	next;
-    }
-    if (lc($cmd) eq 'all_types' || lc($cmd) eq 'at') {
-	$type{$_} = 1 for qw(client router server udp);
+    if ($cmd =~ /^(client|router|server):(.*)$/i) {
+	my ($t, $k) = (lc $1, lc $2);
+	exists $data{$t}{$k} and next;
+	$data{$t}{$k} = 1;
+	push @data, [$t, $k];
 	next;
     }
     if ($cmd =~ /^(?:multicast|scp|tcp|udp)$/i) {
@@ -70,12 +69,8 @@ while (@ARGV) {
 	$all_data = 1;
 	next;
     }
-    $cmd = lc $cmd;
-    exists $data{$cmd} and next;
-    $data{lc $cmd} = 1;
-    push @data, $cmd;
+    die "Invalid command: $cmd\n";
 }
-keys %type or die "No host types requested\n";
 keys %experiment or die "No experiment types selected\n";
 keys %schedule or die "No schedules selected\n";
 keys %sizes or die "No sizes selected\n";
@@ -93,6 +88,11 @@ my %fmt = (
     net         => '%.2f',
     net2        => '%.2f',
 
+    tot_rx      => '%.2f',
+    tot_rx2     => '%.2f',
+    tot_tx      => '%.2f',
+    tot_tx2     => '%.2f',
+
     load        => '%.3f',
     syscpu      => '%.3f',
     totcpu      => '%.3f',
@@ -100,8 +100,6 @@ my %fmt = (
 
     duration    => '%.3f',
     update_time => '%.3f',
-
-    (map { ("if$_.sent" => '%.2f', "if$_.received" => '%.2f') } (1, 2, 3)),
 );
 
 my %scale = (); # map { ("if$_.sent" => 1e-6, "if$_.received" => 1e-6) } (1, 2, 3);
@@ -117,9 +115,12 @@ my %unit = (
     net         => 'MB/s',
     net2        => 'MB/s',
 
-    update_time => 'sec',
+    tot_rx      => 'MB',
+    tot_rx2     => 'MB',
+    tot_tx      => 'MB',
+    tot_tx2     => 'MB',
 
-    (map { ("if$_.sent" => 'MB', "if$_.received" => 'MB') } (1, 2, 3)),
+    update_time => 'sec',
 );
 
 my %group;
@@ -131,7 +132,7 @@ if ($all_topologies || $instance) {
 }
 if (keys %topology) {
     if ($instance) {
-	(grep { $_ < 0 || $_ > 5 } @group)
+	(grep { $_ < 0 || $_ > 4 } @group)
 	    and die "Invalid group @{[map { $_+1 } @group]}\n";
 	my $ilist = $dbh->prepare(<<EOF);
 SELECT instance
@@ -145,22 +146,21 @@ FROM lwmon_summary
 WHERE experiment = ?
   AND schedule = ?
   AND datasize = ?
-  AND host_type = ?
   AND topology = ?
   AND instance = ?
+  AND host_type = ?
   AND key = ?
 ORDER BY n_clients
 EOF
 	my $rkeys = $dbh->prepare(<<EOF);
-SELECT key
+SELECT host_type, key
 FROM lwmon_summary
 WHERE experiment = ?
   AND schedule = ?
   AND datasize = ?
-  AND host_type = ?
   AND topology = ?
   AND instance = ?
-GROUP BY key
+GROUP BY host_type, key
 EOF
 	for my $topology (sort keys %topology) {
 	    for my $ip (@{ $dbh->selectall_arrayref($ilist, {}, $topology) }) {
@@ -168,18 +168,15 @@ EOF
 		for my $experiment (sort keys %experiment) {
 		    for my $schedule (sort keys %schedule) {
 			for my $size (sort keys %sizes) {
-			    for my $type (sort keys %type) {
-				show_data($rdata, $rkeys,
-					  $experiment, $schedule, $size, $type,
-					  $topology, $instance);
-			    }
+			    show_data($rdata, $rkeys,
+				      $experiment, $schedule, $size, $topology, $instance);
 			}
 		    }
 		}
 	    }
 	}
     } else {
-	(grep { $_ < 0 || $_ > 4 } @group)
+	(grep { $_ < 0 || $_ > 3 } @group)
 	    and die "Invalid group @{[map { $_+1 } @group]}\n";
 	my $rdata = $dbh->prepare(<<EOF);
 SELECT n_clients, count, total, square
@@ -187,36 +184,33 @@ FROM lwmon_summary
 WHERE experiment = ?
   AND schedule = ?
   AND datasize = ?
-  AND host_type = ?
   AND topology = ?
+  AND host_type = ?
   AND key = ?
 ORDER BY n_clients
 EOF
 	my $rkeys = $dbh->prepare(<<EOF);
-SELECT key
+SELECT host_type, key
 FROM lwmon_summary
 WHERE experiment = ?
   AND schedule = ?
   AND datasize = ?
-  AND host_type = ?
   AND topology = ?
-GROUP BY key
+GROUP BY host_type, key
 EOF
 	for my $topology (sort keys %topology) {
 	    for my $experiment (sort keys %experiment) {
 		for my $schedule (sort keys %schedule) {
 		    for my $size (sort keys %sizes) {
-			for my $type (sort keys %type) {
-			    show_data($rdata, $rkeys,
-				      $experiment, $schedule, $size, $type, $topology);
-			}
+			show_data($rdata, $rkeys,
+				  $experiment, $schedule, $size, $topology);
 		    }
 		}
 	    }
 	}
     }
 } else {
-    (grep { $_ < 0 || $_ > 3 } @group) and die "Invalid group @{[map { $_+1 } @group]}\n";
+    (grep { $_ < 0 || $_ > 2 } @group) and die "Invalid group @{[map { $_+1 } @group]}\n";
     my $rdata = $dbh->prepare(<<EOF);
 SELECT n_clients, SUM(count), SUM(total), SUM(square)
 FROM lwmon_summary
@@ -229,20 +223,17 @@ GROUP BY n_clients
 ORDER BY n_clients
 EOF
     my $rkeys = $dbh->prepare(<<EOF);
-SELECT key
+SELECT host_type, key
 FROM lwmon_summary
 WHERE experiment = ?
   AND schedule = ?
   AND datasize = ?
-  AND host_type = ?
-GROUP BY key
+GROUP BY host_type, key
 EOF
     for my $experiment (sort keys %experiment) {
 	for my $schedule (sort keys %schedule) {
 	    for my $size (sort keys %sizes) {
-		for my $type (sort keys %type) {
-		    show_data($rdata, $rkeys, $experiment, $schedule, $size, $type);
-		}
+		show_data($rdata, $rkeys, $experiment, $schedule, $size);
 	    }
 	}
     }
@@ -306,20 +297,21 @@ sub show_data {
     my %sdata = %data;
     if ($all_data) {
 	for my $dp (@{ $dbh->selectall_arrayref($rkeys, {}, @parms) }) {
-	    my $cmd = lc $dp->[0];
-	    exists $sdata{$cmd} and next;
-	    $sdata{lc $cmd} = 1;
-	    push @sdata, $cmd;
+	    my ($type, $key) = (lc $dp->[0], lc $dp->[1]);
+	    exists $sdata{$type}{$key} and next;
+	    $sdata{$type}{$key} = 1;
+	    push @sdata, [$type, $key];
 	}
     }
     my $glen = 0;
-    for my $data (@sdata) {
-	my $prndata = $data;
-	exists $unit{$data} and $prndata .= "($unit{$data})";
+    for my $dp (@sdata) {
+	my ($type, $key) = @$dp;
+	my $prndata = $key;
+	exists $unit{$key} and $prndata .= "($unit{$key})";
 	$prndata .= ' (num,  std)';
 	my $len = length $prndata;
 	my @column;
-	for my $dp (@{ $dbh->selectall_arrayref($rdata, {}, @parms, $data) }) {
+	for my $dp (@{ $dbh->selectall_arrayref($rdata, {}, @parms, $type, $key) }) {
 	    my ($nc, $count, $total, $square) = @$dp;
 	    defined $count && $count > 0 or next;
 	    my $avg = $total / $count;
@@ -330,12 +322,12 @@ sub show_data {
 		# avoid square root of "-0"
 		$var < 0 && $var > -1e-10 and $var = 0;
 		$std = sqrt($var),
-		exists $scale{$data} and $std *= $scale{$data};
+		exists $scale{$key} and $std *= $scale{$key};
 		$std = sprintf ",%5.1f)", $std;
 	    }
 	    $max_clients < $nc and $max_clients = $nc;
-	    exists $scale{$data} and $avg *= $scale{$data};
-	    exists $fmt{$data} and $avg = sprintf $fmt{$data}, $avg;
+	    exists $scale{$key} and $avg *= $scale{$key};
+	    exists $fmt{$key} and $avg = sprintf $fmt{$key}, $avg;
 	    my $disp = sprintf "%s %5s%s", $avg, "($count", $std;
 	    $len < length $disp and $len = length $disp;
 	    $column[$nc] = $disp;
