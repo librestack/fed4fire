@@ -9,6 +9,10 @@ my $database = shift @ARGV;
 my $dbh = DBI->connect("dbi:SQLite:dbname=$database", '', '',
 		       { RaiseError => 1, ReadOnly => 1 });
 
+my @gnames = qw(experiment schedule datasize topology instance);
+my %gnames = map { ($gnames[$_] => $_) } (0..$#gnames);
+$gnames{size} = $gnames{datasize};
+
 my (%experiment, %schedule, %data, @data, $all_data,
     %topology, $all_topologies, $instance, %sizes, @group, %gptr, $output);
 while (@ARGV) {
@@ -60,8 +64,11 @@ while (@ARGV) {
 	$sizes{$_} = 1 for (32, 128, 512, 2048);
 	next;
     }
-    if ($cmd =~ /^group=(\d+(?:,\d+)*)$/ ) {
-	@group = map { $_ - 1 } split(/,/, $1);
+    if ($cmd =~ /^group=(\w+(?:,\w+)*)$/ ) {
+	my @g = map { lc $_ } split(/,/, $1);
+	my @bad = grep { ! exists $gnames{$_} } @g;
+	@bad and die "Invalid group(s): @bad\n";
+	@group = map { $gnames{$_} } @g;
 	%gptr = map { ($_ => 0) } @group;
 	next;
     }
@@ -132,8 +139,6 @@ if ($all_topologies || $instance) {
 }
 if (keys %topology) {
     if ($instance) {
-	(grep { $_ < 0 || $_ > 4 } @group)
-	    and die "Invalid group @{[map { $_+1 } @group]}\n";
 	my $ilist = $dbh->prepare(<<EOF);
 SELECT instance
 FROM lwmon_summary
@@ -176,8 +181,7 @@ EOF
 	    }
 	}
     } else {
-	(grep { $_ < 0 || $_ > 3 } @group)
-	    and die "Invalid group @{[map { $_+1 } @group]}\n";
+	exists $gptr{4} and die "Cannot group by instance\n";
 	my $rdata = $dbh->prepare(<<EOF);
 SELECT n_clients, count, total, square, minval, maxval
 FROM lwmon_summary
@@ -210,7 +214,7 @@ EOF
 	}
     }
 } else {
-    (grep { $_ < 0 || $_ > 2 } @group) and die "Invalid group @{[map { $_+1 } @group]}\n";
+    exists $gptr{3} and die "Cannot group by topology\n";
     my $rdata = $dbh->prepare(<<EOF);
 SELECT n_clients, SUM(count), SUM(total), SUM(square), MIN(minval), MAX(maxval)
 FROM lwmon_summary

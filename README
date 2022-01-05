@@ -173,23 +173,27 @@ net-totals ~/DB/jfed.sqlite ~/DB/summary.sqlite
 # "by testbed" files:
 mkdir /tmp/jfed/by-number-and-testbed /tmp/jfed/totals-by-number-and-testbed
 get-summary ~/DB/summary.sqlite instance an server:totcpu server:mem \
-  server:tx ae as az out=/tmp/jfed/by-number-and-testbed/%s.txt group=2,3,4,5
+  server:tx ae as az out=/tmp/jfed/by-number-and-testbed/%s.txt \
+  group=schedule,datasize,topology,instance
 get-summary ~/DB/summary.sqlite instance an server:tot_tx client:update_time \
-  ae as az out=/tmp/jfed/totals-by-number-and-testbed/%s.txt group=2,3,4,5
+  ae as az out=/tmp/jfed/totals-by-number-and-testbed/%s.txt \
+  group=schedule,datasize,topology,instance
 
 # "by topology" files:
 mkdir /tmp/jfed/by-number-and-topology /tmp/jfed/totals-by-number-and-topology
 get-summary ~/DB/summary.sqlite an server:totcpu server:mem server:tx ae as \
-  az out=/tmp/jfed/by-number-and-topology/%s.txt group=2,3,4
+  az out=/tmp/jfed/by-number-and-topology/%s.txt \
+  group=schedule,datasize,topology
 get-summary ~/DB/summary.sqlite an server:tot_tx client:update_time ae as \
-  az out=/tmp/jfed/totals-by-number-and-topology/%s.txt group=2,3,4
+  az out=/tmp/jfed/totals-by-number-and-topology/%s.txt \
+  group=schedule,datasize,topology
 
 # "by number of clients" files:
 mkdir /tmp/jfed/by-number /tmp/jfed/totals-by-number
 get-summary ~/DB/summary.sqlite server:totcpu server:mem server:tx ae as az \
-  out=/tmp/jfed/by-number/%s.txt group=2,3
+  out=/tmp/jfed/by-number/%s.txt group=schedule,datasize
 get-summary ~/DB/summary.sqlite server:tot_tx client:update_time ae as az \
-  out=/tmp/jfed/totals-by-number/%s.txt group=2,3
+  out=/tmp/jfed/totals-by-number/%s.txt group=schedule,datasize
 
 # "all runs" files:
 mkdir /tmp/jfed/runs /tmp/jfed/run_totals
