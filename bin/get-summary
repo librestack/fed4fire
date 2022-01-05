@@ -141,7 +141,7 @@ WHERE topology = ?
 GROUP BY instance
 EOF
 	my $rdata = $dbh->prepare(<<EOF);
-SELECT n_clients, count, total, square
+SELECT n_clients, count, total, square, minval, maxval
 FROM lwmon_summary
 WHERE experiment = ?
   AND schedule = ?
@@ -179,7 +179,7 @@ EOF
 	(grep { $_ < 0 || $_ > 3 } @group)
 	    and die "Invalid group @{[map { $_+1 } @group]}\n";
 	my $rdata = $dbh->prepare(<<EOF);
-SELECT n_clients, count, total, square
+SELECT n_clients, count, total, square, minval, maxval
 FROM lwmon_summary
 WHERE experiment = ?
   AND schedule = ?
@@ -212,7 +212,7 @@ EOF
 } else {
     (grep { $_ < 0 || $_ > 2 } @group) and die "Invalid group @{[map { $_+1 } @group]}\n";
     my $rdata = $dbh->prepare(<<EOF);
-SELECT n_clients, SUM(count), SUM(total), SUM(square)
+SELECT n_clients, SUM(count), SUM(total), SUM(square), MIN(minval), MAX(maxval)
 FROM lwmon_summary
 WHERE experiment = ?
   AND schedule = ?
@@ -288,11 +288,12 @@ sub adjust {
     $s .= ' ';
     length($s) < $clen or return $s;
     $s = ' ' . $s;
+    $clen -= 2;
     length($s) < $clen or return $s;
     my $l2 = $clen - length($s);
     my $l1 = int($l2 / 2);
     $l2 -= $l1;
-    return ($pad x $l1) . $s . ($pad x $l2);
+    return '  ' . ($pad x $l1) . $s . ($pad x $l2);
 }
 
 sub show_data {
@@ -318,11 +319,26 @@ sub show_data {
 	my ($type, $key) = @$dp;
 	my $prndata = $key;
 	exists $unit{$key} and $prndata .= "($unit{$key})";
-	$prndata .= ' num   std';
-	my $len = length $prndata;
 	my @column;
+	my ($minlen, $maxlen) = (3, 3);
 	for my $dp (@{ $dbh->selectall_arrayref($rdata, {}, @parms, $type, $key) }) {
-	    my ($nc, $count, $total, $square) = @$dp;
+	    my ($nc, $count, $total, $square, $min, $max) = @$dp;
+	    if (exists $scale{$key}) {
+		$min *= $scale{$key};
+		$max *= $scale{$key};
+	    }
+	    if (exists $fmt{$key}) {
+		$min = sprintf $fmt{$key}, $min;
+		$max = sprintf $fmt{$key}, $max;
+	    }
+	    $minlen < length($min) and $minlen = length($min);
+	    $maxlen < length($max) and $maxlen = length($max);
+	}
+	$prndata .= sprintf " %${minlen}s %${maxlen}s   num   std", 'min', 'max';
+	my $len = length $prndata;
+	my $emptydata = sprintf "- %${minlen}s %${maxlen}s     -     -", '-', '-';
+	for my $dp (@{ $dbh->selectall_arrayref($rdata, {}, @parms, $type, $key) }) {
+	    my ($nc, $count, $total, $square, $min, $max) = @$dp;
 	    defined $count && $count > 0 or next;
 	    my $avg = $total / $count;
 	    my $std;
@@ -338,17 +354,26 @@ sub show_data {
 		$std = '     -';
 	    }
 	    $max_clients < $nc and $max_clients = $nc;
-	    exists $scale{$key} and $avg *= $scale{$key};
-	    exists $fmt{$key} and $avg = sprintf $fmt{$key}, $avg;
-	    my $disp = sprintf "%s %5d%s", $avg, $count, $std;
+	    if (exists $scale{$key}) {
+		$avg *= $scale{$key};
+		$min *= $scale{$key};
+		$max *= $scale{$key};
+	    }
+	    if (exists $fmt{$key}) {
+		$avg = sprintf $fmt{$key}, $avg;
+		$min = sprintf $fmt{$key}, $min;
+		$max = sprintf $fmt{$key}, $max;
+	    }
+	    my $disp = sprintf "%s %${minlen}s %${maxlen}s %5d%s",
+			       $avg, $min, $max, $count, $std;
 	    $len < length $disp and $len = length $disp;
 	    $column[$nc] = $disp;
 	}
 	push @values, \@column;
-	$len += 2;
+	$len += 4;
 	push @space, $len;
 	$glen += $len;
-	$gempty .= sprintf "%${len}s", '-     -     -';
+	$gempty .= sprintf "%${len}s", $emptydata;
 	$title2 .= sprintf "%${len}s", $prndata;
     }
     $max_clients >= 0 or return;

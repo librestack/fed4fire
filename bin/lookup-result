@@ -203,7 +203,8 @@ WHERE run_data.run_id = lwmon_data.run_id
   ORDER BY timestamp;
 EOF
 
-my ($odbh, $exists_handle, $insert_handle, $update_handle);
+my ($odbh, $exists_handle, $insert_handle, $update_totals_handle);
+my ($update_min_handle, $update_max_handle);
 if (defined $output && @what) {
     $odbh = DBI->connect("dbi:SQLite:dbname=$output", '', '',
 			 { RaiseError => 1, AutoCommit => 0 });
@@ -219,7 +220,9 @@ CREATE TABLE IF NOT EXISTS lwmon_summary (
     key VARCHAR(255),
     count INT,
     total FLOAT,
-    square FLOAT
+    square FLOAT,
+    minval FLOAT,
+    maxval FLOAT
 );
 EOF
     run_update(<<EOF, 1);
@@ -227,7 +230,7 @@ CREATE INDEX IF NOT EXISTS lwmon_summary_type
 ON lwmon_summary(experiment, schedule, datasize, host_type, topology, instance, n_clients, key);
 EOF
     $exists_handle = $odbh->prepare(<<EOF);
-SELECT COUNT(*) FROM lwmon_summary
+SELECT minval, maxval FROM lwmon_summary
 WHERE experiment = ?
   AND schedule = ?
   AND datasize = ?
@@ -239,13 +242,37 @@ WHERE experiment = ?
 EOF
     $insert_handle = $odbh->prepare(<<EOF);
 INSERT INTO lwmon_summary
-(total, square, experiment, schedule, datasize,
+(total, minval, maxval, square, experiment, schedule, datasize,
  topology, instance, host_type, n_clients, key, count)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
 EOF
-    $update_handle = $odbh->prepare(<<EOF);
+    $update_totals_handle = $odbh->prepare(<<EOF);
 UPDATE lwmon_summary
 SET count = count + 1, total = total + ?, square = square + ?
+WHERE experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND topology = ?
+  AND instance = ?
+  AND host_type = ?
+  AND n_clients = ?
+  AND key = ?;
+EOF
+    $update_min_handle = $odbh->prepare(<<EOF);
+UPDATE lwmon_summary
+SET minval = ?
+WHERE experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND topology = ?
+  AND instance = ?
+  AND host_type = ?
+  AND n_clients = ?
+  AND key = ?;
+EOF
+    $update_max_handle = $odbh->prepare(<<EOF);
+UPDATE lwmon_summary
+SET maxval = ?
 WHERE experiment = ?
   AND schedule = ?
   AND datasize = ?
@@ -261,6 +288,7 @@ my $sep = ' ';
 #my $sep = '|';
 my %count;
 my $do_print = ! $odbh;
+my $rno = 0;
 RUN:
 for my $run (sort { $a->[5] <=> $b->[5] ||
 		    $a->[2] cmp $b->[2] ||
@@ -270,6 +298,7 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
 		    $a->[1] <=> $b->[1] 
 		  } @runs)
 {
+    $rno++;
     my ($topology, $boot_time, $experiment, $schedule, $datasize, $run_ts) = @$run;
     if (defined $tfile && $do_print) {
 	my $dest = sprintf $tfile, "$experiment.$schedule.$datasize.$topology.$run_ts";
@@ -281,9 +310,16 @@ for my $run (sort { $a->[5] <=> $b->[5] ||
     $dtop =~ s/(\D+)$// and $instance .= $1;
     if (@what) {
 	(my $tarname = join('-', @$run) . '.tar.gz') =~ s/-/:/;
-	printf "RUN: %-10s %-20s %-10s %-10s %5d  %s\n",
-	       $topology, fmt_ts($boot_time),
-	       $experiment, $schedule, $datasize, fmt_time($run_ts);
+	if ($do_print) {
+	    printf "RUN: %-10s %-20s %-10s %-10s %5d  %s\n",
+		   $topology, fmt_ts($boot_time),
+		   $experiment, $schedule, $datasize, fmt_time($run_ts);
+	} else {
+	    printf "%-10s %-20s %-10s %-10s %5d  %s  %d/%d\n",
+		   $topology, fmt_ts($boot_time),
+		   $experiment, $schedule, $datasize, fmt_time($run_ts),
+		   $rno, scalar(@runs);
+	}
 	# figure out the likely time required to run the file hash; this
 	# will be the timestamp the server shows some network activity,
 	# minus the first timestamp produced by the server
@@ -550,11 +586,13 @@ sub add_data {
     my @data = @_;
     my $value = pop @data;
     my $square = $value * $value;
-    my ($count) = $odbh->selectrow_array($exists_handle, {}, @data);
-    if ($count) {
-	$update_handle->execute($value, $square, @data);
+    my ($min, $max) = $odbh->selectrow_array($exists_handle, {}, @data);
+    if (defined $min) {
+	$update_totals_handle->execute($value, $square, @data);
+	$value < $min and $update_min_handle->execute($value, @data);
+	$value > $max and $update_max_handle->execute($value, @data);
     } else {
-	$insert_handle->execute($value, $square, @data);
+	$insert_handle->execute($value, $value, $value, $square, @data);
     }
 }
 

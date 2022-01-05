@@ -187,7 +187,7 @@ EOF
 
 # see if we have already running totals in main summary table
 my $exists_handle = $sh->prepare(<<EOF);
-SELECT COUNT(*) FROM lwmon_summary
+SELECT minval, maxval FROM lwmon_summary
 WHERE experiment = ?
   AND schedule = ?
   AND datasize = ?
@@ -201,15 +201,39 @@ EOF
 # insert new running total into main summary table
 my $insert_handle = $sh->prepare(<<EOF);
 INSERT INTO lwmon_summary
-(total, square, experiment, schedule, datasize,
+(total, minval, maxval, square, experiment, schedule, datasize,
  topology, instance, host_type, n_clients, key, count)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
 EOF
 
 # update existing running total in main summary table
-my $update_handle = $sh->prepare(<<EOF);
+my $update_totals_handle = $sh->prepare(<<EOF);
 UPDATE lwmon_summary
 SET count = count + 1, total = total + ?, square = square + ?
+WHERE experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND topology = ?
+  AND instance = ?
+  AND host_type = ?
+  AND n_clients = ?
+  AND key = ?;
+EOF
+my $update_min_handle = $sh->prepare(<<EOF);
+UPDATE lwmon_summary
+SET minval = ?
+WHERE experiment = ?
+  AND schedule = ?
+  AND datasize = ?
+  AND topology = ?
+  AND instance = ?
+  AND host_type = ?
+  AND n_clients = ?
+  AND key = ?;
+EOF
+my $update_max_handle = $sh->prepare(<<EOF);
+UPDATE lwmon_summary
+SET maxval = ?
 WHERE experiment = ?
   AND schedule = ?
   AND datasize = ?
@@ -273,12 +297,17 @@ for (my $nr = 0; $nr < $totruns; $nr++) {
 		    push @data, $value;
 		    my $square = $value * $value;
 		    my $skey = ($key eq 'sent' ? 'tot_tx' : 'tot_rx') . $inum;
-		    my ($found) =
+		    my ($min, $max) =
 			$sh->selectrow_array($exists_handle, {}, @udata, $skey);
-		    if ($found) {
-			$update_handle->execute($value, $square, @udata, $skey);
+		    if (defined $min) {
+			$update_totals_handle->execute($value, $square, @udata, $skey);
+			$value < $min
+			    and $update_min_handle->execute($value, @udata, $skey);
+			$value > $max
+			    and $update_max_handle->execute($value, @udata, $skey);
 		    } else {
-			$insert_handle->execute($value, $square, @udata, $skey);
+			$insert_handle->execute($value, $value, $value, $square,
+						@udata, $skey);
 		    }
 		}
 		$net_insert_handle->execute(@sdata, $end_run, $host,
@@ -291,11 +320,15 @@ for (my $nr = 0; $nr < $totruns; $nr++) {
 	    $time *= 1e-3;
 	    $time_insert_handle->execute(@sdata, $end_run, $host, $n_clients, $time);
 	    my $square = $time * $time;
-	    my ($found) = $sh->selectrow_array($exists_handle, {}, @udata, 'update_time');
-	    if ($found) {
-		$update_handle->execute($time, $square, @udata, 'update_time');
+	    my ($min, $max) =
+		$sh->selectrow_array($exists_handle, {}, @udata, 'update_time');
+	    if (defined $min) {
+		$update_totals_handle->execute($time, $square, @udata, 'update_time');
+		$time < $min and $update_min_handle->execute($time, @udata, 'update_time');
+		$time > $max and $update_max_handle->execute($time, @udata, 'update_time');
 	    } else {
-		$insert_handle->execute($time, $square, @udata, 'update_time');
+		$insert_handle->execute($time, $time, $time, $square,
+					@udata, 'update_time');
 	    }
 	}
     }
@@ -318,12 +351,22 @@ for (my $nr = 0; $nr < $totruns; $nr++) {
 	    $hosts{$host_type}{$host_number}{"tx$inum"} = $mbytes_sent;
 	    $hosts{$host_type}{$host_number}{"rx$inum"} = $mbytes_received;
 	    exists $stat{"net$inum"}{$host_type}
-		or $stat{"net$inum"}{$host_type} = [0, 0, 0, 0, 0];
+		or $stat{"net$inum"}{$host_type} =
+		    [0, 0, 0, $mbytes_sent, $mbytes_sent,
+			0, 0, $mbytes_received, $mbytes_received];
 	    $stat{"net$inum"}{$host_type}[0]++;
 	    $stat{"net$inum"}{$host_type}[1] += $mbytes_sent;
 	    $stat{"net$inum"}{$host_type}[2] += $mbytes_sent * $mbytes_sent;
-	    $stat{"net$inum"}{$host_type}[3] += $mbytes_received;
-	    $stat{"net$inum"}{$host_type}[4] += $mbytes_received * $mbytes_received;
+	    $stat{"net$inum"}{$host_type}[3] > $mbytes_sent
+		and $stat{"net$inum"}{$host_type}[3] = $mbytes_sent;
+	    $stat{"net$inum"}{$host_type}[4] < $mbytes_sent
+		and $stat{"net$inum"}{$host_type}[4] = $mbytes_sent;
+	    $stat{"net$inum"}{$host_type}[5] += $mbytes_received;
+	    $stat{"net$inum"}{$host_type}[6] += $mbytes_received * $mbytes_received;
+	    $stat{"net$inum"}{$host_type}[7] > $mbytes_received
+		and $stat{"net$inum"}{$host_type}[7] = $mbytes_received;
+	    $stat{"net$inum"}{$host_type}[8] < $mbytes_received
+		and $stat{"net$inum"}{$host_type}[8] = $mbytes_received;
 	}
 	for my $tp (@{ $sh->selectall_arrayref($time_data_handle, {}, @sdata, $end_run) }) {
 	    my ($host, $nc, $update_time) = @$tp;
@@ -336,10 +379,15 @@ for (my $nr = 0; $nr < $totruns; $nr++) {
 		$n_clients = $nc;
 	    }
 	    $hosts{$host_type}{$host_number}{update_time} = $update_time;
-	    exists $stat{time}{$host_type} or $stat{time}{$host_type} = [0, 0, 0];
+	    exists $stat{time}{$host_type}
+		or $stat{time}{$host_type} = [0, 0, 0, $update_time, $update_time];
 	    $stat{time}{$host_type}[0]++;
 	    $stat{time}{$host_type}[1] += $update_time;
 	    $stat{time}{$host_type}[2] += $update_time * $update_time;
+	    $stat{time}{$host_type}[3] > $update_time
+		and $stat{time}{$host_type}[3] = $update_time;
+	    $stat{time}{$host_type}[4] < $update_time
+		and $stat{time}{$host_type}[4] = $update_time;
 	}
 	my $ofile = sprintf $out, join('.', @sdata, $end_run);
 	open(OF, '>', $ofile) or die "$ofile: $!\n";
@@ -347,18 +395,19 @@ for (my $nr = 0; $nr < $totruns; $nr++) {
 	print OF "n_clients: $n_clients\n" or die "$ofile: $!\n";
 	print OF "\n" or die "$ofile: $!\n";
 	for my $ht (sort keys %hosts) {
-	    my $title = sprintf "%-24s   %8s  %5s   %7s\n", $ht, 'AVG', 'COUNT', 'STD';
+	    my $title = sprintf "%-24s   %8s  %8s  %8s  %5s   %7s\n",
+				$ht, 'AVG', 'MIN', 'MAX', 'COUNT', 'STD';
 	    if ($stat{net}{$ht}[0] > 1) {
 		print OF $title or die "$ofile: $!\n";
 		$title = '';
 		avg($ofile, 'Total MB sent:', $stat{net}{$ht}, 1);
-		avg($ofile, 'Total MB received:', $stat{net}{$ht}, 3);
+		avg($ofile, 'Total MB received:', $stat{net}{$ht}, 5);
 	    }
 	    if (exists $stat{net2}{$ht} && $stat{net2}{$ht}[0] > 1) {
 		print OF $title or die "$ofile: $!\n";
 		$title = '';
 		avg($ofile, 'Total MB sent (if2):', $stat{net2}{$ht}, 1);
-		avg($ofile, 'Total MB recd (if2):', $stat{net2}{$ht}, 3);
+		avg($ofile, 'Total MB recd (if2):', $stat{net2}{$ht}, 5);
 	    }
 	    if (exists $stat{time}{$ht} && $stat{time}{$ht}[0] > 1) {
 		print OF $title or die "$ofile: $!\n";
@@ -391,6 +440,8 @@ sub avg {
     my $count = $arr->[0];
     my $total = $arr->[$idx];
     my $square = $arr->[$idx + 1];
+    my $min = $arr->[$idx + 2];
+    my $max = $arr->[$idx + 3];
     my $avg = $total / $count;
     if ($count > 1) {
 	my $var = ($square - 2 * $avg * $total + $avg * $avg * $count)
@@ -398,10 +449,12 @@ sub avg {
 	# avoid square root of "-0"
 	$var < 0 && $var > -1e-10 and $var = 0;
 	my $std = sqrt($var);
-	printf OF "    %-20s   %8.3f  %5d   %7.1f\n", $title, $avg, $count, $std
+	printf OF "    %-20s   %8.3f  %8.3f  %8.3f  %5d   %7.1f\n",
+		  $title, $avg, $min, $max, $count, $std
 	    or die "$ofile: $!\n";
     } else {
-	printf OF "    %-20s   %8.3f  %5d         -\n", $title, $avg, $count
+	printf OF "    %-20s   %8.3f  %8.3f  %8.3f  %5d         -\n",
+		  $title, $avg, $min, $max, $count
 	    or die "$ofile: $!\n";
     }
 }
