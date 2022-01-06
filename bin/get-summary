@@ -85,49 +85,55 @@ keys %sizes or die "No sizes selected\n";
 $all_data || @data or die "No data requested\n";
 
 my %fmt = (
-    mem         => '%.2f',
-    swap        => '%.2f',
+    mem           => '%.2f',
+    swap          => '%.2f',
 
-    rx          => '%.2f',
-    rx2         => '%.2f',
-    tx          => '%.2f',
-    tx2         => '%.2f',
-    net         => '%.2f',
-    net2        => '%.2f',
+    rx            => '%.2f',
+    rx2           => '%.2f',
+    tx            => '%.2f',
+    tx2           => '%.2f',
+    net           => '%.2f',
+    net2          => '%.2f',
 
-    tot_rx      => '%.2f',
-    tot_rx2     => '%.2f',
-    tot_tx      => '%.2f',
-    tot_tx2     => '%.2f',
+    tot_rx        => '%.2f',
+    tot_rx2       => '%.2f',
+    tot_tx        => '%.2f',
+    tot_tx2       => '%.2f',
 
-    load        => '%.3f',
-    syscpu      => '%.3f',
-    totcpu      => '%.3f',
-    usercpu     => '%.3f',
+    load          => '%.3f',
+    syscpu        => '%.3f',
+    totcpu        => '%.3f',
+    usercpu       => '%.3f',
 
-    duration    => '%.3f',
-    update_time => '%.3f',
+    duration      => '%.3f',
+    update_time   => '%.3f',
+    total_usercpu => '%.3f',
+    total_syscpu  => '%.3f',
+    total_cpu     => '%.3f',
 );
 
 my %scale = (); # map { ("if$_.sent" => 1e-6, "if$_.received" => 1e-6) } (1, 2, 3);
 
 my %unit = (
-    mem         => 'MB',
-    swap        => 'MB',
+    mem           => 'MB',
+    swap          => 'MB',
 
-    rx          => 'MB/s',
-    rx2         => 'MB/s',
-    tx          => 'MB/s',
-    tx2         => 'MB/s',
-    net         => 'MB/s',
-    net2        => 'MB/s',
+    rx            => 'MB/s',
+    rx2           => 'MB/s',
+    tx            => 'MB/s',
+    tx2           => 'MB/s',
+    net           => 'MB/s',
+    net2          => 'MB/s',
 
-    tot_rx      => 'MB',
-    tot_rx2     => 'MB',
-    tot_tx      => 'MB',
-    tot_tx2     => 'MB',
+    tot_rx        => 'MB',
+    tot_rx2       => 'MB',
+    tot_tx        => 'MB',
+    tot_tx2       => 'MB',
 
-    update_time => 'sec',
+    update_time   => 'sec',
+    total_usercpu => 'sec',
+    total_syscpu  => 'sec',
+    total_cpu     => 'sec',
 );
 
 my %group;
@@ -257,16 +263,18 @@ for my $gn (sort keys %group) {
     print "$gn:\n";
     my $title1 = '';
     my $title2 = '';
+    my $title3 = '';
     my @rows;
     my $max_clients = 0;
     for my $gp (@{$group{$gn}}) {
-	my ($glen, $gempty, $grest, $title, $mc, $gdata) = @$gp;
+	my ($glen, $gempty, $grest, $title, $gname, $mc, $gdata) = @$gp;
 	$max_clients < $mc and $max_clients = $mc;
     }
     for my $gp (@{$group{$gn}}) {
-	my ($glen, $gempty, $grest, $title, $mc, $gdata) = @$gp;
-	$title1 .= '  ' . adjust($grest, $glen, '-');
-	$title2 .= '  ' . adjust($title, $glen, ' ');
+	my ($glen, $gempty, $grest, $title, $gname, $mc, $gdata) = @$gp;
+	$title1 .= '    ' . adjust($grest, $glen - 2, '-');
+	$title2 .= '  ' . adjust($gname, $glen, ' ');
+	$title3 .= '  ' . adjust($title, $glen, ' ');
 	for (my $i = 0; $i <= $max_clients; $i++) {
 	    my $n = $gdata->[$i];
 	    defined $n or $n = $gempty;
@@ -274,7 +282,7 @@ for my $gn (sort keys %group) {
 	    $rows[$i] .= '  ' . $n;
 	}
     }
-    print "#clients$title1\n        $title2\n";
+    print "        $title1\n#clients$title2\n        $title3\n";
     for (my $i = 0; $i < @rows; $i++) {
 	defined $rows[$i] && $rows[$i] =~ /[\.\d]/ or next;
 	printf "%8d%s\n", $i, $rows[$i];
@@ -292,12 +300,11 @@ sub adjust {
     $s .= ' ';
     length($s) < $clen or return $s;
     $s = ' ' . $s;
-    $clen -= 2;
     length($s) < $clen or return $s;
     my $l2 = $clen - length($s);
     my $l1 = int($l2 / 2);
     $l2 -= $l1;
-    return '  ' . ($pad x $l1) . $s . ($pad x $l2);
+    return ($pad x $l1) . $s . ($pad x $l2);
 }
 
 sub show_data {
@@ -306,7 +313,6 @@ sub show_data {
     my $title2 = '';
     my @values;
     my @space;
-    my $max_clients = -1;
     my @sdata = @data;
     my %sdata = %data;
     if ($all_data) {
@@ -319,31 +325,15 @@ sub show_data {
     }
     my $glen = 0;
     my $gempty = '';
+    my $gname = '';
+    my $max_clients = -1;
     for my $dp (@sdata) {
 	my ($type, $key) = @$dp;
-	my $prndata = $key;
-	exists $unit{$key} and $prndata .= "($unit{$key})";
+	my ($avglen, $minlen, $maxlen, $countlen, $stdlen) = (4, 3, 3, 3, 3);
 	my @column;
-	my ($minlen, $maxlen) = (3, 3);
 	for my $dp (@{ $dbh->selectall_arrayref($rdata, {}, @parms, $type, $key) }) {
 	    my ($nc, $count, $total, $square, $min, $max) = @$dp;
-	    if (exists $scale{$key}) {
-		$min *= $scale{$key};
-		$max *= $scale{$key};
-	    }
-	    if (exists $fmt{$key}) {
-		$min = sprintf $fmt{$key}, $min;
-		$max = sprintf $fmt{$key}, $max;
-	    }
-	    $minlen < length($min) and $minlen = length($min);
-	    $maxlen < length($max) and $maxlen = length($max);
-	}
-	$prndata .= sprintf " %${minlen}s %${maxlen}s   num   std", 'min', 'max';
-	my $len = length $prndata;
-	my $emptydata = sprintf "- %${minlen}s %${maxlen}s     -     -", '-', '-';
-	for my $dp (@{ $dbh->selectall_arrayref($rdata, {}, @parms, $type, $key) }) {
-	    my ($nc, $count, $total, $square, $min, $max) = @$dp;
-	    defined $count && $count > 0 or next;
+	    $max_clients < $nc and $max_clients = $nc;
 	    my $avg = $total / $count;
 	    my $std;
 	    if ($count > 1) {
@@ -352,33 +342,47 @@ sub show_data {
 		# avoid square root of "-0"
 		$var < 0 && $var > -1e-10 and $var = 0;
 		$std = sqrt($var);
-		exists $scale{$key} and $std *= $scale{$key};
-		$std = sprintf " %5.1f", $std;
-	    } else {
-		$std = '     -';
 	    }
-	    $max_clients < $nc and $max_clients = $nc;
 	    if (exists $scale{$key}) {
 		$avg *= $scale{$key};
 		$min *= $scale{$key};
 		$max *= $scale{$key};
+		defined $std and $std *= $scale{$key};
 	    }
 	    if (exists $fmt{$key}) {
 		$avg = sprintf $fmt{$key}, $avg;
 		$min = sprintf $fmt{$key}, $min;
 		$max = sprintf $fmt{$key}, $max;
+		defined $std and $std = sprintf $fmt{$key}, $std;
 	    }
-	    my $disp = sprintf "%s %${minlen}s %${maxlen}s %5d%s",
-			       $avg, $min, $max, $count, $std;
-	    $len < length $disp and $len = length $disp;
-	    $column[$nc] = $disp;
+	    defined $std or $std = '-';
+	    $avglen < length($avg) and $avglen = length($avg);
+	    $minlen < length($min) and $minlen = length($min);
+	    $maxlen < length($max) and $maxlen = length($max);
+	    $countlen < length($count) and $countlen = length($count);
+	    $stdlen < length($std) and $stdlen = length($std);
+	    $column[$nc] = [$avg, $min, $max, $count, $std];
+	}
+	my $dataname = "$type:$key";
+	exists $unit{$key} and $dataname .= " ($unit{$key})";
+	my $format = "%${avglen}s %${minlen}s %${maxlen}s %${countlen}s %${stdlen}s";
+	my $header = sprintf $format, qw(mean min max num std);
+	my $emptydata = sprintf $format, qw(- - - - -);
+	my $len = length $header;
+	$len < length($dataname) and $len = length($dataname);
+	$dataname = adjust($dataname, $len, '-');
+	$header = adjust($header, $len, ' ');
+	for (my $i = 0; $i < @column; $i++) {
+	    defined $column[$i]
+		and $column[$i] = sprintf $format, @{$column[$i]};
 	}
 	push @values, \@column;
-	$len += 4;
+	$len += 2;
 	push @space, $len;
 	$glen += $len;
 	$gempty .= sprintf "%${len}s", $emptydata;
-	$title2 .= sprintf "%${len}s", $prndata;
+	$gname .= sprintf "%${len}s", $dataname;
+	$title2 .= sprintf "%${len}s", $header;
     }
     $max_clients >= 0 or return;
     my ($gindex, $grest, @gdata, $dest);
@@ -417,7 +421,8 @@ sub show_data {
 	}
     }
     if (@group) {
-	push @{$group{$gindex}}, [$glen, $gempty, $grest, $title2, $max_clients, \@gdata];
+	push @{$group{$gindex}},
+	    [$glen, $gempty, $grest, $title2, $gname, $max_clients, \@gdata];
     } else {
 	print "\n";
 	if (defined $output) {

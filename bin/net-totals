@@ -46,7 +46,9 @@ CREATE TABLE IF NOT EXISTS time_summary (
     end_run INT,
     host VARCHAR(255),
     n_clients INT,
-    update_time FLOAT
+    update_time FLOAT,
+    user_cpu FLOAT,
+    system_cpu FLOAT
 );
 EOF
 $sh->do(<<EOF);
@@ -109,7 +111,7 @@ EOF
 
 # update time for a (client) host
 my $utime_handle = $mh->prepare(<<EOF);
-SELECT value
+SELECT key, value
 FROM run_data
 LEFT JOIN lwmon_data
 ON run_data.run_id = lwmon_data.run_id
@@ -121,7 +123,7 @@ WHERE topology = ?
   AND end_run = ?
   AND host = ?
   AND name = 'experiment'
-  AND key = 'wallclock';
+  AND key in ('wallclock', 'user', 'system');
 EOF
 
 my $net_exists_handle = $sh->prepare(<<EOF);
@@ -181,8 +183,9 @@ EOF
 # insert data into time summary
 my $time_insert_handle = $sh->prepare(<<EOF);
 INSERT INTO time_summary
-(experiment, schedule, datasize, topology, instance, end_run, host, n_clients, update_time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+(experiment, schedule, datasize, topology, instance, end_run, host, n_clients,
+ update_time, user_cpu, system_cpu)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 EOF
 
 # see if we have already running totals in main summary table
@@ -314,21 +317,31 @@ for (my $nr = 0; $nr < $totruns; $nr++) {
 					    $n_clients, $iface, @data);
 	    }
 	}
-	if ($host_type eq 'client' && ! $time_found) {
+	if (! $time_found) {
 	    print "TIME @$run $host $rno/$totruns\n";
-	    my ($time) = $mh->selectrow_array($utime_handle, {}, @$run, $host);
-	    $time *= 1e-3;
-	    $time_insert_handle->execute(@sdata, $end_run, $host, $n_clients, $time);
-	    my $square = $time * $time;
-	    my ($min, $max) =
-		$sh->selectrow_array($exists_handle, {}, @udata, 'update_time');
-	    if (defined $min) {
-		$update_totals_handle->execute($time, $square, @udata, 'update_time');
-		$time < $min and $update_min_handle->execute($time, @udata, 'update_time');
-		$time > $max and $update_max_handle->execute($time, @udata, 'update_time');
-	    } else {
-		$insert_handle->execute($time, $time, $time, $square,
-					@udata, 'update_time');
+	    my %data = map { ($_->[0] => $_->[1]) }
+		       @{ $mh->selectall_arrayref($utime_handle, {}, @$run, $host); };
+	    my $wall = 1e-3 * ($data{wallclock} || 0);
+	    my $user = 1e-3 * ($data{user} || 0);
+	    my $system = 1e-3 * ($data{system} || 0);
+	    $time_insert_handle->execute(@sdata, $end_run, $host, $n_clients,
+					 $wall, $user, $system);
+	    for my $dp (
+		['update_time', $wall],
+		['total_usercpu', $user],
+		['total_syscpu', $system],
+		['total_cpu', $user + $system],
+	    ) {
+		my ($key, $value) = @$dp;
+		my $square = $value * $value;
+		my ($min, $max) = $sh->selectrow_array($exists_handle, {}, @udata, $key);
+		if (defined $min) {
+		    $update_totals_handle->execute($value, $square, @udata, $key);
+		    $value < $min and $update_min_handle->execute($value, @udata, $key);
+		    $value > $max and $update_max_handle->execute($value, @udata, $key);
+		} else {
+		    $insert_handle->execute($value, $value, $value, $square, @udata, $key);
+		}
 	    }
 	}
     }
