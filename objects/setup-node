@@ -13,9 +13,13 @@ fi
 sudo cp -a /tmp/experiment/lib* /usr/local/lib/
 sudo cp -a /tmp/experiment/iotup* /usr/local/bin/
 sudo cp -a /tmp/experiment/lwmon /usr/local/bin/
+sudo cp -a /tmp/experiment/lwmon-log /usr/local/bin/
 sudo cp -a /tmp/experiment/pim6sd /usr/local/bin/
 sudo cp -a /tmp/experiment/mcast???? /usr/local/bin/
 sudo cp -a /tmp/experiment/librecast* /usr/local/include/
+sudo cp -a /tmp/experiment/lwmon.h /usr/local/include/
+sudo mkdir -p /usr/local/include/lwmon
+sudo cp -a /tmp/experiment/lwmon-include/* /usr/local/include/lwmon/
 sudo ldconfig
 
 # update host table to have more useful list of nodes than the
@@ -40,6 +44,13 @@ do
 	code=1
     fi
     echo "$interface  $ipv4  $ipv6"
+    ip addr show dev "$interface" | \
+    awk '($1 == "inet" || $1 == "inet6") && /scope global/ {print $2}' | \
+    while read oldaddr
+    do
+	sudo ip addr delete "$oldaddr" dev "$interface"
+    done
+    sudo ip link set down dev "$interface"
     sudo ip link set up dev "$interface"
     sudo ip -4 addr add "$ipv4/24" dev "$interface"
     sudo ip -6 addr add "$ipv6/64" dev "$interface" nodad

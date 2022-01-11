@@ -2,6 +2,8 @@
 
 # just copy the file using scp
 
-exec scp -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
+lwmon-log client_scp start
+scp -P7722 -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
     "[$2]:/tmp/datafile" /tmp/datafile >"$logfile" 2>&1
+lwmon-log client_scp end
 

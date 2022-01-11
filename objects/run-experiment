@@ -1,5 +1,8 @@
 #!/bin/sh
 
+load_sleep=60
+[ $# -gt 0 ] && load_sleep="$1"
+
 ssh='ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa'
 
 # figure out experiment name
@@ -38,17 +41,72 @@ do
 	    fi
 	    # make sure the 1-minute load average on all nodes is back to its
 	    # baseline value (probably 0) before we start this experiment
-	    msg "Sleeping 60 seconds to let load average return to baseline level"
-	    sleep 60
+	    msg "Sleeping $load_sleep seconds to let load average return to baseline level"
+	    sleep $load_sleep
 	    rm -r /tmp/results /tmp/logs >/dev/null 2>&1
 	    mkdir /tmp/results /tmp/logs
 	    echo
 	    msg "Running experiment=$experiment schedule=$schedule size=$size"
-	    # start the experiment
+	    # start all routers
+	    do_sleep=false
 	    while read what type number host port user
 	    do
 		[ "$what" = NODE ] || continue
-		[ "$type" = server -o "$type" = client -o "$type" = router ] || continue
+		[ "$type" = router ] || continue
+		$do_sleep || msg "(starting routers)"
+		sshrun="$ssh -p$port $user@$host -n"
+		$sshrun /tmp/experiment/start "$schedule" "$experiment" \
+		    "$type" "$number" "$size" &
+		do_sleep=true
+	    done < /tmp/experiment/setup-data
+	    $do_sleep && sleep 2
+	    # start all servers
+	    msg "(starting servers)"
+	    while read what type number host port user
+	    do
+		[ "$what" = NODE ] || continue
+		[ "$type" = server ] || continue
+		sshrun="$ssh -p$port $user@$host -n"
+		$sshrun /tmp/experiment/start "$schedule" "$experiment" \
+		    "$type" "$number" "$size" &
+	    done < /tmp/experiment/setup-data
+	    msg "(waiting for servers to be ready)"
+	    previous=''
+	    while true
+	    do
+		ok=''
+		waiting=''
+		while read what type number host port user
+		do
+		    [ "$what" = NODE ] || continue
+		    [ "$type" = server ] || continue
+		    if $sshrun /tmp/experiment/check-server 
+		    then
+			ok="$ok $type$number"
+		    else
+			waiting="$waiting $type$number"
+		    fi
+		done < /tmp/experiment/setup-data
+		[ ".$waiting" = . ] && break
+		if [ ".$ok" = . ]
+		then
+		    message="WAIT:$waiting"
+		else
+		    message="OK:$ok; WAIT:$waiting"
+		fi
+		if [ ".$previous" != ".$message" ]
+		then
+		    msg "$message"
+		    previous="$message"
+		fi
+		sleep 2
+	    done
+	    # start all clients and run the experiment
+	    msg "(starting clients)"
+	    while read what type number host port user
+	    do
+		[ "$what" = NODE ] || continue
+		[ "$type" = client ] || continue
 		sshrun="$ssh -p$port $user@$host -n"
 		$sshrun /tmp/experiment/start "$schedule" "$experiment" \
 		    "$type" "$number" "$size" &
@@ -90,9 +148,6 @@ do
 		fi
 		sleep 2
 	    done
-	    # make sure all copies are complete, not just started
-	    msg Waiting to make sure all rsyncs completed
-	    sleep 4
 	    msg "Stopping experiment"
 	    while read what type number host port user
 	    do
@@ -137,7 +192,8 @@ do
 		fi
 		sleep 2
 	    done
-	    # make sure all copies are complete, not just started
+	    # make sure all copies are complete, not just started (this may
+	    # be no longer needed but doesn't harm)
 	    msg Waiting to make sure all rsyncs completed
 	    sleep 4
 	    # create result tarballs and copy them to server

@@ -2,7 +2,8 @@
 
 # end the experiment
 
-killall -TERM sleep
+pid="`cat /tmp/sshd.pid`"
+sudo kill -TERM "$pid"
 sleep 1
-killall -KILL sleep >/dev/null 2>&1
+sudo kill -KILL "$pid" >/dev/null 2>&1
 

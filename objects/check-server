@@ -1,0 +1,10 @@
+#!/bin/sh
+
+# check if server has started
+
+fn="`ls /tmp/results 2>/dev/null`"
+[ ".$fn" = . ] && exit 1
+results="`lwmon -R "/tmp/results/$fn" -P- 2>/dev/null | grep 'server_.*start'`"
+[ ".$results" = . ] && exit 1
+exit 0
+

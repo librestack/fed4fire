@@ -14,5 +14,7 @@ do
     [ "$type" = client ] && $ssh "$type$number" sudo killall iotup iotupc scp
     [ "$type" = router ] && $ssh "$type$number" sudo killall pim6sd sleep
     [ "$type" = server ] && $ssh "$type$number" sudo killall iotup iotupd sleep
+    [ "$type" = server ] && $ssh "$type$number" '[ -f /tmp/sshd.pid ] && sudo kill `cat /tmp/sshd.pid`'
+    $ssh "$type$number" sudo killall lwmon
 done < /tmp/experiment/setup-data
 
