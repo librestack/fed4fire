@@ -151,6 +151,10 @@ do
     echo
     for experiment in $experiments
     do
+	# each experiment gets passed the duration of the previous experiment,
+	# so that "random" (which is normally after "immediate" can adapt the
+	# random wait based on this; first time though we just make up a number
+	duration=16
 	for schedule in $schedules
 	do
 	    if [ -f /tmp/only-run ]
@@ -168,12 +172,14 @@ do
 	    echo "$experiment $schedule $size" > /tmp/current-experiment
 	    # start all routers and servers
 	    run_all Starting router 'start up' /tmp/ready \
-		    /tmp/experiment/start "$schedule" "$experiment" '[TYPE]' '[NUMBER]' "$size"
+		    /tmp/experiment/start "$schedule" "$experiment" '[TYPE]' '[NUMBER]' "$size" "$duration"
 	    run_all Starting server 'start up' /tmp/ready \
-		    /tmp/experiment/start "$schedule" "$experiment" '[TYPE]' '[NUMBER]' "$size"
+		    /tmp/experiment/start "$schedule" "$experiment" '[TYPE]' '[NUMBER]' "$size" "$duration"
 	    # start all clients and run the experiment
+	    before=`date +%s`
 	    run_all Starting client complete /tmp/results \
-		    /tmp/experiment/start "$schedule" "$experiment" '[TYPE]' '[NUMBER]' "$size"
+		    /tmp/experiment/start "$schedule" "$experiment" '[TYPE]' '[NUMBER]' "$size" "$duration"
+	    duration=$(( `date +%s` - $before ))
 	    # stop servers and routers
 	    run_all Stopping server complete /tmp/results /tmp/experiment/stop
 	    run_all Stopping router complete /tmp/results /tmp/experiment/stop

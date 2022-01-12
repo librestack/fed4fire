@@ -1,7 +1,4 @@
 #!/bin/sh
 
-# "immediate" client schedule: all clients start after a 4 second sleep
-# (servers wait 2 seconds to make sure the routers are set up for the
-# experiment, so clients wait 4)
-sleep 4
+# "immediate" client schedule: nothing to do
 

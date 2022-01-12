@@ -6,12 +6,13 @@
 # sshd so we have to parse the output
 
 logit=true
+exec >> "$logfile"
 sudo /usr/sbin/sshd -D -e -p 7722 -o 'PidFile /tmp/experiment.pid' 2>&1 | \
 while read line
 do
     $logit && lwmon-log -n "$type$number" server_scp start
     logit=false
-    echo "$line" >> "$logfile"
+    echo "$line"
     case "$line" in
 	'Accepted publickey'*) lwmon-log -n "$type$number" server_scp request ;;
 	'Received disconnect'*) lwmon-log -n "$type$number" server_scp done ;;

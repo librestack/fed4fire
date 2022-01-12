@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# "random" client schedule: sleep a random time between 4 and 36 seconds
-# (servers wait 2 seconds to make sure the routers are set up for the
-# experiment, so clients wait at least 4)
-sleep $(( 4 + ( $RANDOM % 32 ) ))
+# "random" client schedule: sleep a random time between 0 and the
+# duration of the "immediate" experiment
+delay=$(( $RANDOM % ( $duration + 1 ) ))
+echo "Schedule delay: $delay / $duration" >> "$logfile"
+sleep $delay
 

@@ -10,6 +10,7 @@ export experiment="$2"
 export type="$3"
 export number="$4"
 export size="$5"
+export duration="$6"
 
 # setup-node writes the name of the interface to use for packets here
 export interface="`head -1 /tmp/interface`"
@@ -19,6 +20,9 @@ export server="` \
     awk '/^ADDR server/ { print $NF }' /tmp/experiment/setup-data | \
     shuf | \
     head -1`"
+
+mkdir /tmp/results /tmp/logs
+export logfile="/tmp/logs/$type$number.$experiment.$schedule.$size"
 
 # run any preparation which we do not want to measure; we only run the
 # first one we find, but if that needs to include a more generic one it
@@ -72,8 +76,6 @@ sed -e 's/\[TYPE\]/'"$type"'/g' \
     -e 's/\[START\]/'"$start"'/g' \
     /tmp/experiment/lwmon-config > /tmp/lwmon-config
 
-export logfile="/tmp/logs/$type$number.$experiment.$schedule.$size"
-
 ifnum=0
 while read ifname
 do
@@ -81,7 +83,6 @@ do
     echo "network if$ifnum 1 $ifname" >> /tmp/lwmon-config
 done < /tmp/interface
 
-mkdir /tmp/results /tmp/logs
 director="`awk '/^ADDR director/ { print $NF; exit }' /tmp/experiment/setup-data`"
 if [ "$type" = server -o "$type" = router ]
 then
