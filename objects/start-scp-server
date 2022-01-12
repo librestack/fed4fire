@@ -5,10 +5,12 @@
 # which write directly to the lwmon socket, here we use an unmodified
 # sshd so we have to parse the output
 
-(sleep 1; lwmon-log -n "$type$number" server_scp start) &
-sudo /usr/sbin/sshd -D -e -p 7722 -o 'PidFile /tmp/sshd.pid' 2>&1 | \
+logit=true
+sudo /usr/sbin/sshd -D -e -p 7722 -o 'PidFile /tmp/experiment.pid' 2>&1 | \
 while read line
 do
+    $logit && lwmon-log -n "$type$number" server_scp start
+    logit=false
     echo "$line" >> "$logfile"
     case "$line" in
 	'Accepted publickey'*) lwmon-log -n "$type$number" server_scp request ;;

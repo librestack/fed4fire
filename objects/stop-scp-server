@@ -1,9 +1,0 @@
-#!/bin/sh
-
-# end the experiment
-
-pid="`cat /tmp/sshd.pid`"
-sudo kill -TERM "$pid"
-sleep 1
-sudo kill -KILL "$pid" >/dev/null 2>&1
-

@@ -1,4 +1,6 @@
 #!/bin/sh
 
-exec iotup client tcp /tmp/datafile "$2" >"$logfile" 2>&1
+iotup client tcp /tmp/datafile "$2" >"$logfile" 2>&1 &
+echo "$!" > /tmp/experiment.pid
+wait
 

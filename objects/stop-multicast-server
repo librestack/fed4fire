@@ -1,8 +1,0 @@
-#!/bin/sh
-
-# end the experiment
-
-sudo killall -TERM iotupd
-sleep 1
-sudo killall -KILL iotupd >/dev/null 2>&1
-

@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# first clean up any previous results
+sudo rm -r /tmp/results /tmp/logs /tmp/lwmon.socket /tmp/experiment.pid >/dev/null 2>&1
+
 # start the experiment
 
 export schedule="$1"
@@ -37,10 +40,26 @@ fi
 # run the scheduler for clients only
 if [ "$type" = client ]
 then
-    "/tmp/experiment/schedule-$schedule"
     # make sure we don't find a permission problem because some experiments
     # run as root, and some don't
     sudo rm -f /tmp/datafile
+    # and run anything needed to schedule the experiment
+    "/tmp/experiment/schedule-$schedule"
+fi
+
+# find how to start this experiment...
+start=''
+for try in "$experiment-$type" "$experiment" "$type"
+do
+    [ -x "/tmp/experiment/start-$try" ] || continue
+    start="$try"
+    break
+done
+
+if [ ".$start" = . ]
+then
+    echo "Don't know how to start $experiment $schedule $type" >&2
+    exit 1
 fi
 
 sed -e 's/\[TYPE\]/'"$type"'/g' \
@@ -50,6 +69,7 @@ sed -e 's/\[TYPE\]/'"$type"'/g' \
     -e 's/\[SERVER\]/'"$server"'/g' \
     -e 's/\[SCHEDULE\]/'"$schedule"'/g' \
     -e 's/\[SIZE\]/'"$size"'/g' \
+    -e 's/\[START\]/'"$start"'/g' \
     /tmp/experiment/lwmon-config > /tmp/lwmon-config
 
 export logfile="/tmp/logs/$type$number.$experiment.$schedule.$size"
@@ -61,14 +81,26 @@ do
     echo "network if$ifnum 1 $ifname" >> /tmp/lwmon-config
 done < /tmp/interface
 
-sudo rm -r /tmp/results /tmp/logs >/dev/null 2>&1
 mkdir /tmp/results /tmp/logs
-sudo rm /tmp/lwmon.socket >/dev/null 2>&1
+director="`awk '/^ADDR director/ { print $NF; exit }' /tmp/experiment/setup-data`"
+if [ "$type" = server -o "$type" = router ]
+then
+    # watch for the "start" message and send notifications
+    (
+	for retry in 1 2 3 4 5 6 7 8 9 10
+	do
+	    sleep $retry
+	    [ ".`/tmp/experiment/check-ready "$type"`" = . ] && continue
+	    ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
+		"$director" touch "/tmp/ready/$type$number.1"
+	    break
+	done
+    ) &
+fi
 lwmon -c /tmp/lwmon-config
 
 # copy the results back to director -- which seems to be unable to cope
 # with too many incoming connections, hence the loop and retries
-director="`awk '/^ADDR director/ { print $NF; exit }' /tmp/experiment/setup-data`"
 if [ -f "$logfile" ]
 then
     for n in 1 2 3 4 5 6 7 8
