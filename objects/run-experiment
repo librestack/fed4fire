@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 load_sleep=60
 copy_results=true
@@ -15,6 +15,7 @@ do
 	-l|--logs) copy_logs=true ;;
 	-s|--sleep) load_sleep="$1"; shift ;;
 	-z|--size) sizes="$sizes $1"; shift ;;
+	-w|--schedule) schedules="$schedules $1"; shift ;;
 	-e|--experiment) experiments="$experiments $1"; shift ;;
 	-p|--pretend) really=false ;;
 	*) echo "Usage: $0 [options]" >&2
@@ -71,7 +72,7 @@ finish_wait() {
     if [ ".$wa" != . ]
     then
 	local ok=''
-	msg "Waiting for ${type}s ($wa) to be $what"
+	msg "Waiting for ${type}s ($wa) to $what"
 	while [ ".$wa" != . ]
 	do
 	    change=false
@@ -95,6 +96,40 @@ finish_wait() {
 	msg "All ${type}s ($ok) $what"
     fi
     rm -r "$wait_path" >/dev/null 2>&1
+}
+
+run_all() {
+    local action="$1"; shift
+    local ntype="$1"; shift
+    local what="$1"; shift
+    local dir="$1"; shift
+    local any_nodes=false
+    local node type number host port user
+    prepare_wait
+    while read node type number host port user
+    do
+	[ "$node" = NODE ] || continue
+	[ "$type" = "$ntype" ] || continue
+	$any_nodes || msg "$action ${ntype}s"
+	any_nodes=true
+	wait_for "$number"
+	args=( )
+	for a in "$@"
+	do
+	    case "$a" in
+		'[TYPE]') args+=( "$type" ) ;;
+		'[NUMBER]') args+=( "$number" ) ;;
+		*) args+=( "$a" ) ;;
+	    esac
+	done
+	if $really
+	then
+	    $ssh -p$port $user@$host -n "${args[@]}" &
+	else
+	    echo "*** ssh $host ${args[*]}"
+	fi
+    done < /tmp/experiment/setup-data
+    finish_wait "$ntype" "$what" "$dir"
 }
 
 # run an experiment for each requested size
@@ -130,58 +165,18 @@ do
 	    mkdir /tmp/results /tmp/logs /tmp/ready
 	    echo
 	    msg "Running experiment=$experiment schedule=$schedule size=$size"
-	    # start all routers and servers
-	    for ntype in router server
-	    do
-		prepare_wait
-		any_nodes=false
-		while read what type number host port user
-		do
-		    [ "$what" = NODE ] || continue
-		    [ "$type" = "$ntype" ] || continue
-		    $any_nodes || msg "Starting ${ntype}s"
-		    any_nodes=true
-		    wait_for "$number"
-		    $really || continue
-		    sshrun="$ssh -p$port $user@$host -n"
-		    $sshrun /tmp/experiment/start "$schedule" "$experiment" \
-			"$type" "$number" "$size" &
-		done < /tmp/experiment/setup-data
-		finish_wait "$ntype" ready /tmp/ready
-	    done
-	    # start all clients and run the experiment
-	    msg "Starting clients"
-	    prepare_wait
-	    while read what type number host port user
-	    do
-		[ "$what" = NODE ] || continue
-		[ "$type" = client ] || continue
-		wait_for "$number"
-		$really || continue
-		sshrun="$ssh -p$port $user@$host -n"
-		$sshrun /tmp/experiment/start "$schedule" "$experiment" \
-		    "$type" "$number" "$size" &
-	    done < /tmp/experiment/setup-data
-	    # wait for all clients to report completion
 	    echo "$experiment $schedule $size" > /tmp/current-experiment
-	    finish_wait client done /tmp/results
-	    for ntype in server router
-	    do
-		any_nodes=false
-		prepare_wait
-		while read what type number host port user
-		do
-		    [ "$what" = NODE ] || continue
-		    [ "$type" = "$ntype" ] || continue
-		    $any_nodes || msg "Stopping ${ntype}s"
-		    any_nodes=true
-		    wait_for "$number"
-		    $really || continue
-		    sshrun="$ssh -p$port $user@$host -n"
-		    $sshrun /tmp/experiment/stop
-		done < /tmp/experiment/setup-data
-		finish_wait "$ntype" done /tmp/results
-	    done
+	    # start all routers and servers
+	    run_all Starting router 'start up' /tmp/ready \
+		    /tmp/experiment/start "$schedule" "$experiment" '[TYPE]' '[NUMBER]' "$size"
+	    run_all Starting server 'start up' /tmp/ready \
+		    /tmp/experiment/start "$schedule" "$experiment" '[TYPE]' '[NUMBER]' "$size"
+	    # start all clients and run the experiment
+	    run_all Starting client complete /tmp/results \
+		    /tmp/experiment/start "$schedule" "$experiment" '[TYPE]' '[NUMBER]' "$size"
+	    # stop servers and routers
+	    run_all Stopping server complete /tmp/results /tmp/experiment/stop
+	    run_all Stopping router complete /tmp/results /tmp/experiment/stop
 	    if $copy_results && $really
 	    then
 		# create result tarballs and copy them to server
