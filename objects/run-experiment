@@ -12,7 +12,7 @@ do
     opt="$1"; shift
     case "$opt" in
 	-n|--no|--no-copy) copy_results=false ;;
-	-l|--logs) copy_logs=true ;;
+	-l|--logs|--copy-logs) copy_logs=true ;;
 	-s|--sleep) load_sleep="$1"; shift ;;
 	-z|--size) sizes="$sizes $1"; shift ;;
 	-w|--schedule) schedules="$schedules $1"; shift ;;
@@ -189,14 +189,12 @@ do
 		msg "Copying results to server"
 		tarball="/tmp/$exp-$experiment-$schedule-$size-`date +%Y%m%d%H%M%S`.tar.gz"
 		tar czf "$tarball" -C /tmp/results .
-		scp -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
-		    -P722 "$tarball" jfed@f4fresults.w42.org:results/
+		rsync -avHP --inplace "$tarball" f4fresults.w42.org::f4f-results/
 		rm "$tarball"
 		if $copy_logs
 		then
 		    tar czf "$tarball" -C /tmp/logs .
-		    scp -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
-			-P722 "$tarball" jfed@f4fresults.w42.org:logs/
+		    rsync -avHP --inplace "$tarball" f4fresults.w42.org::f4f-logs/
 		    rm "$tarball"
 		fi
 	    fi
