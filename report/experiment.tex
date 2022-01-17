@@ -74,27 +74,30 @@ a large file to a large number of nodes.
 To provide evidence for the above statements, we compare the
 following methods of providing updates:
 
-\begin{itemize}
-\item Traditional unicast using a TCP-based service: a
+\begin{list}{multicast}{}
+\item[tcp:]
+Traditional unicast using a TCP-based service: a
 server listens to TCP requests to send a copy of the software
 update, and each client requests
 the update from the server: this is the mechanism used by the vast
 majority of current services.
-\item Full multicast: a number of servers provide the software
+\item[scp:]
+Simple copy of the file using ``scp'' followed by a verification
+of the checksum; this is included mostly to confirm that the setup
+works correctly with standard, well-tested tools.
+\item[multicast:]
+Full multicast: a number of servers provide the software
 update using multicast, and clients will obtain the updates by
 joining a multicast group and waiting for the data to arrive.
-\item Unicast using a UDP-based service: this is similar to the
+\item[udp:]
+Unicast using a UDP-based service: this is similar to the
 TCP case, but uses datagrams instead of virtual circuits: this
 mechanism is introduced because multicast is by necessity based
 on datagrams: there is no feedback from receiver to sender, and
 we want to help determine which differences may be caused by
 unicast vs.\ multicast, and which ones by virtual circuits vs\.
 datagrams.
-\end{itemize}
-
-Additionally, we also measure the effect of a simple ``scp''
-of the file, to confirm that the setup works with standard,
-well-tested tools.
+\end{list}
 
 Apart from the ``scp'' runs, do not use encryption in this experiment,
 all the three methods send the data unencrypted and verify that it
@@ -105,15 +108,19 @@ do not expect the results to be different when excription is used for
 all transmissions, as used in many other cases, but we might consider
 a future experiment to test this.
 
-Independently of the method selected, there are two ``client''
+Independently of the method selected, there are three ``client''
 scheduling strategies:
 
-\begin{itemize}
-\item All clients request updates at approximately the same time
-(the ``immediate'' strategy).
-\item Clients wait a random time before requesting the update
-(the ``random'' strategy).
-\end{itemize}
+\begin{list}{immediate}{}
+\item[immediate:]
+All clients request updates at approximately the same time.
+\item[random:]
+Each client will first wait a random time, up to the duration
+of the corresponding experiment using the ``immediate'' strategy.
+\item[random2:]
+Each client will first wait a random time, up to twice the duration
+of the corresponding experiment using the ``immediate'' strategy.
+\end{list}
 
 We run the simulated software updates in a variety of network
 configurations and with a variety of file sizes to simulate the
@@ -218,12 +225,10 @@ update provider appropriate for the selected update method.  These
 update providers are described below.
 
 After the server has started, the director asks all client nodes to
-start as well: each client will first wait a short time depending on
-the scheduling strategy: a fixed 4 seconds for ``immediate'' or a
-random duration between 4 and 36 seconds for ``random''; the minimum
-wait of 4 seconds is to make sure the rest of the system is fully
-ready to run. After this delay, each client starts a resource monitoring
-daemon identical to the one running on the server, and a client
+start as well; for the ``random'' and ``random2'' scheduling strategies
+each client will first wait a random time, this step is skipped
+for the ``immediate'' strategy; then each client starts a resource
+monitoring daemon identical to the one running on the server, and a client
 program to obtain the update.
 
 When a client has successfully obtained the update, the monitoring
@@ -233,7 +238,8 @@ resource measurements, and sends all the data back to the director.
 The director waits for all clients to have sent the data, then asks the
 server to stop, which will also trigger a copy of the server's resource
 measurements back to the director: all the measurements from all nodes
-are collected into a single ``tar'' archive and saved for later analysis.
+are collected into a single ``tar'' archive and copied to one of our
+servers for later analysis.
 
 The resource monitoring daemon records the following data every second:
 
@@ -257,6 +263,16 @@ the program obtaining the update for clients):
 \item The termination status: whether the program reported an error
 \end{itemize}
 
+The program running to provide the update method will also log some
+data via the same mechanism; unicast servers log the time of each
+request received and the time the corresponding reply has been
+sent completely: this allows a very precise count of the number of
+clients ``active'' (i.e. using server's resources) at any time, but
+it is not possible for multicast where the server only knows whether
+at least one client is active, or they are all inactive. The information
+about number of active clients is provided by the client logs in this
+case, and is sligtly less accurate.
+
 Since the experiment procedure is automated by running a single program
 on the director, where possible we ran it many times on the same
 testbed, to have more experimental data without the extra overhead
@@ -264,68 +280,77 @@ of setting up a new testbed.
 
 We ran three versions of this experiment, with 20 and 64 clients.  We
 have been unable to run a larger experiment as there were never sufficient
-resources available on the testbed, so we have been unable to show scale
-issues properly.
+resources available on the testbed, so we leave detailed study of scale
+issues to a future experiment.
 
 \subsection{Update methods}
 The ``multicast'' method uses the ``IoT updater'' demonstration
-program~\cite{iotupd:paper} to copy a file from server to clients: on the
-server side ``iotupd'' calculates the file's checksum, then runs a loop in
-which it sends the whole file and the checksum to a specified multicast
-group, then repeats the sending until asked to stop at the end of the
-experimend.  Each client runs ``iotupc'' which waits for the data to
-arrive on the specified group and saves it to a local file, stopping when
-the file checksum matches.  There is no feedback from client to server,
-and no mechanism for a client to require retransmission of missing data;
-however the client can just wait for the server to send it again. More
-details on the IoT updater can be found in appendix~\ref{iotupd} or in
-the source code~\cite{iotupd:sources}.
+program~\cite{iotupd:paper} to copy a file from server to clients: on
+the server side ``iotupd'' calculates the file's checksum, notifies the
+director that it's ready to send data, then runs a loop in which it sends
+the whole file and the checksum to a specified multicast group, then
+repeats the sending until asked to stop at the end of the experimend.
+Each client runs ``iotupc'' which waits for the data to arrive on the
+specified group and saves it to a local file, stopping when the file
+checksum matches.  The only feedback from client to server is provided
+by MLD (Multicast Listener Discovery) messages, which allow the server
+to know if there is at least one active client, or if they are all
+inactive: in particular, there is no mechanism for a client to request
+retransmission of missing data; however the client can just wait for the
+server to send it again. More details on the IoT updater can be found
+in appendix~\ref{iotupd} or in the source code~\cite{iotupd:sources}.
 
 The unicast ``scp'' method just uses the ``scp'' program (part of
 openssh) on each client to connect to the server and ask for a copy of
-the file: this allows us to show that the experiment setup is working
-with some well-known software; however the presence of encryption
-means that the results are not directly comparable with other experiments;
-a future experiment in which all methods use encryption will of course
-benefit from inclusion of this method.
+the file; then it calculates the file digest and compares it wit the
+digest provided by the director, repeating the whole thing in the
+unlikely case there is a mismatch: this allows us to show that the
+experiment setup is working with some well-known software; however the
+presence of encryption means that the results are not directly comparable
+with other experiments; a future experiment in which all methods use
+encryption will of course benefit from inclusion of this method.
+Instead of using the ``ssh'' daemon already running on each node, we
+chose to start another one on a different TCP port, so we can monitor
+precisely the server resource usage.
 
-The unicast ``tcp'' experiment is similar in concept to the ``scp'' one,
-but implemented with code as similar as possible to the multicast case
-to make comparisons more meaningful.  On the server side, the ``iotup''
-program (in TCP server mode) calculates the file checksum then waits for
-connections; it replies to each connection with the file checksum and
-the full file data, sent as a single TCP stream.  On the client side,
-the ``iotup'' program (in TCP client mode) connects to server, saves the
-file data, calculates the checksum and compares it with the one sent by
-the server; if the checksum match, the program exits with success, otherwise
-it retries the whole download. Because TCP already does its own verification,
+The unicast ``tcp'' experiment is similar in concept to the ``scp''
+one, but implemented with code as similar as possible to the multicast
+case to make comparisons more meaningful.  On the server side, the
+``iotup'' program (in TCP server mode) calculates the file checksum,
+notifies the director that it is ready, then waits for connections;
+it replies to each connection with the file checksum and the full file
+data, sent as a single TCP stream.  On the client side, the ``iotup''
+program (in TCP client mode) connects to server, saves the file data,
+calculates the checksum and compares it with the one sent by the server;
+if the checksum match, the program exits with success, otherwise it
+retries the whole download. Because TCP already does its own verification,
 it is unlikely that the client will ever have to retry in this experiment
 when everything runs in the same building; however in a future larger and
 more distributed experiment we can expect to encounter network issues
 which will require retries from the client. The ``iotup'' program is
-described more fully in appendix~\ref{unisync} and its sources are available
-in~\cite{unisync:sources}.
+described more fully in appendix~\ref{unisync} and its sources are
+available in~\cite{unisync:sources}.
 
 The unicast ``udp'' method is very similar to the ``tcp'' method,
-but uses UDP rather than TCP and that implies that retransmissions
-and duplicate detection need to be handled at the application level.
-On the server side, the ``iotup'' program (in UDP server mode) calculates
-the file checksum, then waits for requests coming in via UDP; these
-request specify a range of bytes to send, and the server replies with a
-sequence of UDP packets, each of which contain the same information as
-the packets sent using the ``multicast'' method.  Each client starts by
-requesting the whole file (specifying both start and end offsets as 0,
-which the server interprets as ``from 0 to end of file'') and waiting
-for data: if there is no reply within a pre-determined time, it will
-retry the request.  Once at least one packet arrives to the client,
-it will know the total data size and the file checksum, and will have
-part of the data.  The client will wait until all the expected data has
-arrived, or a timeout occurs in which no new packets have arrived for a
-pre-defined time.  The client will then decide whether any part of the
-file needs retransmitting and continue until it has received all the
-data it expects, and the file checksum matches.  The ``iotup'' program
-is described more fully in appendix~\ref{unisync} and its sources are
-available in~\cite{unisync:sources}.
+but uses UDP rather than TCP and that implies that retransmissions and
+duplicate detection need to be handled at the application level.  On the
+server side, the ``iotup'' program (in UDP server mode) calculates the
+file checksum, notifies the director that it is ready for clients, then
+waits for requests coming in via UDP; these request specify a range of
+bytes to send, and the server replies with a sequence of UDP packets,
+each of which contain the same information as the packets sent using the
+``multicast'' method.  Each client starts by requesting the whole file
+(specifying both start and end offsets as 0, which the server interprets
+as ``from 0 to end of file'') and waiting for data: if there is no reply
+within a pre-determined time, it will retry the request.  Once at least
+one packet arrives to the client, it will know the total data size and the
+file checksum, and will have part of the data.  The client will wait until
+all the expected data has arrived, or a timeout occurs in which no new
+packets have arrived for a pre-defined time.  The client will then decide
+whether any part of the file needs retransmitting and continue until
+it has received all the data it expects, and the file checksum matches.
+The ``iotup'' program is described more fully in appendix~\ref{unisync}
+and its sources are available in~\cite{unisync:sources}.
 
 \section{``Two LANs'' experiment}
 \label{TWOLAN:experiment}
