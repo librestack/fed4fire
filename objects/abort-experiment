@@ -4,17 +4,25 @@ ssh='ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa -n
 
 chmod 600 /tmp/experiment/id_rsa
 
+experiments="`ls /tmp/experiment | \
+    awk -F- '$1 == "start" && NF > 2 {print $2}' | \
+    sort -u`"
+
 echo "Abort director0"
-sudo killall -9 run-experiment
+sudo killall -9 run-experiment 2>/dev/null
 while read what type number host port user
 do
     [ "$what" = NODE ] || continue
     [ "$type" = director ] && continue
     echo "Abort $type$number"
     $ssh "$type$number" /tmp/experiment/stop
-    [ "$type" = client ] && $ssh "$type$number" sudo killall iotup iotupc scp
-    [ "$type" = router ] && $ssh "$type$number" sudo killall pim6sd sleep
-    [ "$type" = server ] && $ssh "$type$number" sudo killall iotup iotupd sleep
-    $ssh "$type$number" sudo killall lwmon
+    for experiment in $experiments
+    do
+	$ssh "$type$number" sudo killall "start-$experiment-$type" "start-$experiment" "start-$type" 2>/dev/null
+    done
+    [ "$type" = client ] && $ssh "$type$number" sudo killall iotup iotupc scp 2>/dev/null
+    [ "$type" = router ] && $ssh "$type$number" sudo killall pim6sd sleep 2>/dev/null
+    [ "$type" = server ] && $ssh "$type$number" sudo killall iotup iotupd sleep 2>/dev/null
+    $ssh "$type$number" sudo killall lwmon rsync start 2>/dev/null
 done < /tmp/experiment/setup-data
 

@@ -3,7 +3,25 @@
 # just copy the file using scp
 
 lwmon-log client_scp start
-scp -P7722 -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
-    "[$2]:/tmp/datafile" /tmp/datafile >>"$logfile" 2>&1
+while true
+do
+    scp -P7722 -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
+	"[$2]:/tmp/datafile" /tmp/datafile >>"$logfile" 2>&1 &
+    echo "$! $$" > /tmp/experiment.pid
+    wait
+    # all other methods include a checksum calculation and retry if it does not
+    # match; scp doesn't have that so we simulate it here (it's unlikely that
+    # scp will copy something wrong... but the checksum and retry is part of
+    # the experiment procedure, and it affects timings, so for comparison with
+    # other methods we must have it
+    openssl dgst -blake2b512 -hex -r /tmp/datafile | \
+	awk '{print $1}' > /tmp/datafile.calculated
+    echo "Expected digest" >> "$logfile"
+    cat /tmp/datafile.digest >> "$logfile"
+    echo "Calculated digest" >> "$logfile"
+    cat /tmp/datafile.calculated >> "$logfile"
+    cmp -s /tmp/datafile.calculated /tmp/datafile.digest && break
+done
 lwmon-log client_scp end
+rm -f /tmp/datafile.calculated
 

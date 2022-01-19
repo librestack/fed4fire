@@ -1,0 +1,8 @@
+#!/bin/bash
+
+# "random" client schedule: sleep a random time between 0 and twice the
+# duration of the "immediate" experiment
+delay=$(( $RANDOM % ( ( 2 * $duration ) + 1 ) ))
+echo "Schedule delay: $delay / $duration" >> "$logfile"
+sleep $delay
+

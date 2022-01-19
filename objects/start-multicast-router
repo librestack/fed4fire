@@ -2,7 +2,7 @@
 
 # run pim6sd
 
-sudo pim6sd -f /tmp/pim6sd.conf -n >>"$logfile" 2>&1 &
+sudo pim6sd -f /tmp/pim6sd.conf -n -d mld >>"$logfile" 2>&1 &
 echo "$!" > /tmp/experiment.pid
 # give it time to set up
 sleep 5

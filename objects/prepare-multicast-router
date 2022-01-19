@@ -14,7 +14,7 @@ done
 
 while read interface
 do
-    echo "phyint $interface enable;"
+    echo "phyint $interface enable mld_version 2 query_rsp_interval 1000;"
 done < /tmp/interface
 
 # the last interface will be the one closest to the servers

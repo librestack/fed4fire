@@ -6,6 +6,7 @@ copy_logs=false
 sizes=''
 schedules=''
 experiments=''
+default_duration=16
 really=true
 while [ $# -gt 0 ]
 do
@@ -14,6 +15,7 @@ do
 	-n|--no|--no-copy) copy_results=false ;;
 	-l|--logs|--copy-logs) copy_logs=true ;;
 	-s|--sleep) load_sleep="$1"; shift ;;
+	-d|--duration) default_duration="$1"; shift ;;
 	-z|--size) sizes="$sizes $1"; shift ;;
 	-w|--schedule) schedules="$schedules $1"; shift ;;
 	-e|--experiment) experiments="$experiments $1"; shift ;;
@@ -67,8 +69,8 @@ finish_wait() {
     local type="$1"
     local what="$2"
     local dir="$3"
-    local wa="`cd "$wait_path/wait" && echo *`"
-    [ ".$wa" = '.*' ] && wa=''
+    local wa="`cd "$wait_path/wait" && ls | sort -n | tr '\n' ' '`"
+    wa="${wa% }"
     if [ ".$wa" != . ]
     then
 	local ok=''
@@ -84,10 +86,10 @@ finish_wait() {
 	    done
 	    if $change
 	    then
-		ok="`cd "$wait_path/ok" && echo *`"
-		[ ".$ok" = '.*' ] && ok=''
-		wa="`cd "$wait_path/wait" && echo *`"
-		[ ".$wa" = '.*' ] && wa=''
+		ok="`cd "$wait_path/ok" && ls | sort -n | tr '\n' ' '`"
+		ok="${ok% }"
+		wa="`cd "$wait_path/wait" && ls | sort -n | tr '\n' ' '`"
+		wa="${wa% }"
 		[ ".$wa" = . ] && break
 		msg "OK $ok -- WAIT $wa"
 	    fi
@@ -135,26 +137,40 @@ run_all() {
 # run an experiment for each requested size
 for size in $sizes
 do
-    msg "Running experiments, size=$size"
+    msg "Preparing random file, size=$size"
     # we need the file to be identical on all servers,
     # so we make one up here and copy to all servers
-    $really && \
-	{ dd if=/dev/urandom bs=1048576 count=$size of=/tmp/datafile || continue; }
-    while read what type number host port user
-    do
-	[ "$what" = NODE ] || continue
-	[ "$type" = server ] || continue
-	$really && \
-	    rsync -avHPe "$ssh -p$port" --whole-file --inplace \
-		  /tmp/datafile $user@$host:/tmp/datafile < /dev/null
-    done < /tmp/experiment/setup-data
+    # also for one of the experiments we need the digest on
+    # all clients
+    if $really
+    then
+	dd if=/dev/urandom bs=1048576 count=$size \
+	    of=/tmp/datafile status=none || continue
+	openssl dgst -blake2b512 -hex -r /tmp/datafile | \
+	    awk '{print $1}' > /tmp/datafile.digest
+    fi
+    if $really
+    then
+	while read what type number host port user
+	do
+	    [ "$what" = NODE ] || continue
+	    [ "$type" = server ] && \
+		rsync -aqHPe "$ssh -p$port" --whole-file --inplace \
+		      /tmp/datafile $user@$host:/tmp/datafile < /dev/null
+	    [ "$type" = client ] && \
+		rsync -aqHPe "$ssh -p$port" --whole-file --inplace \
+		      /tmp/datafile.digest $user@$host:/tmp/datafile.digest < /dev/null
+	done < /tmp/experiment/setup-data
+    fi
+    echo
+    msg "Running experiments, size=$size"
     echo
     for experiment in $experiments
     do
 	# each experiment gets passed the duration of the previous experiment,
 	# so that "random" (which is normally after "immediate" can adapt the
 	# random wait based on this; first time though we just make up a number
-	duration=16
+	duration=$default_duration
 	for schedule in $schedules
 	do
 	    if [ -f /tmp/only-run ]
@@ -168,7 +184,12 @@ do
 	    rm -r /tmp/results /tmp/logs /tmp/ready >/dev/null 2>&1
 	    mkdir /tmp/results /tmp/logs /tmp/ready
 	    echo
-	    msg "Running experiment=$experiment schedule=$schedule size=$size"
+	    if [ "$schedule" = immediate ]
+	    then
+		msg "Running experiment=$experiment schedule=$schedule size=$size"
+	    else
+		msg "Running experiment=$experiment schedule=$schedule size=$size (delay limit: $duration)"
+	    fi
 	    echo "$experiment $schedule $size" > /tmp/current-experiment
 	    # start all routers and servers
 	    run_all Starting router 'start up' /tmp/ready \
@@ -179,7 +200,7 @@ do
 	    before=`date +%s`
 	    run_all Starting client complete /tmp/results \
 		    /tmp/experiment/start "$schedule" "$experiment" '[TYPE]' '[NUMBER]' "$size" "$duration"
-	    duration=$(( `date +%s` - $before ))
+	    [ "$schedule" = immediate ] && duration=$(( `date +%s` - $before ))
 	    # stop servers and routers
 	    run_all Stopping server complete /tmp/results /tmp/experiment/stop
 	    run_all Stopping router complete /tmp/results /tmp/experiment/stop

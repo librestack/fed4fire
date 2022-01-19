@@ -5,19 +5,26 @@ ssh='ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa'
 chmod 600 /tmp/experiment/id_rsa
 /tmp/experiment/copy-experiment
 
-# set up all servers, clients and the director itself
-while read what type number host port user
+# set up director0
+echo "Setting up director0"
+/tmp/experiment/setup-node director 0 > /tmp/d0-hosts
+cat /etc/hosts /tmp/d0-hosts > /tmp/ll-hosts
+rm /tmp/d0-hosts
+
+# then set up servers, routers and clients, in this order
+for n_type in server router client
 do
-    [ "$what" = NODE ] || continue
-    echo "Setting up $type$number"
-    if [ "$type" = director ]
-    then
-	/tmp/experiment/setup-node "$type" "$number"
-    else
+    while read what type number host port user
+    do
+	[ "$what" = NODE ] || continue
+	[ "$type" = "$n_type" ] || continue
+	echo "Setting up $type$number"
 	sshrun="$ssh -p$port $user@$host -n"
-	$sshrun /tmp/experiment/setup-node "$type" "$number"
-    fi
-done < /tmp/experiment/setup-data
+	$sshrun /tmp/experiment/setup-node "$type" "$number" >> /tmp/ll-hosts
+    done < /tmp/experiment/setup-data
+done
+sudo cp /tmp/ll-hosts /etc/hosts
+rm /tmp/ll-hosts
 
 /tmp/experiment/ping-all-nodes
 

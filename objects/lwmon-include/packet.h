@@ -73,6 +73,7 @@ typedef struct {
  * normally stored in the binary packet data */
 typedef struct {
     time_t timestamp;
+    int millisecond;
     const char * host;  /* not 0-terminated, see hostlen */
     int hostlen;
     int id;             /* id number helps detecting duplicates */
@@ -110,6 +111,13 @@ typedef struct {
     int n_values;
     int64_t values[LWMON_VALUES];
 } lwmon_dataitem_t;
+
+/* time format for printpacket */
+typedef enum {
+    lwmon_time_gmt,
+    lwmon_time_local,
+    lwmon_time_raw
+} lwmon_timeformat_t;
 
 /* set default host name for packets - if this is not called, it will
  * default to the value returned by gethostname(); the data is copied
@@ -159,7 +167,7 @@ int lwmon_get_data(const lwmon_packet_t *, int, lwmon_dataitem_t *);
 void lwmon_closepacket(lwmon_packet_t *);
 
 /* produces a human-readable representation of packet */
-void lwmon_printpacket(FILE *, const lwmon_packet_t *, int);
+void lwmon_printpacket(FILE *, const lwmon_packet_t *, lwmon_timeformat_t, int);
 
 /* calls a function for each value in a packet */
 int lwmon_packetdata(const lwmon_packet_t *, void *,
