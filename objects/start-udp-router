@@ -1,7 +1,0 @@
-#!/bin/sh
-
-# unicast routing does not need to do anything special, so we
-# sleep until the director terminates the experiment
-
-exec sleep 86400
-

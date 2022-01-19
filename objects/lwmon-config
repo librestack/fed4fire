@@ -1,12 +1,13 @@
 # lwmon configuration file to run an experiment; caller needs to change
 # the items below and then run "lwmon -c" on the result
-# [TYPE]       = client, server, router, director
-# [NODE]       = node number
 # [EXPERIMENT] = unicast, multicast, hybrid
 # [INTERFACE]  = interface to use for network traffic
-# [SERVER]     = for clients only, server to use, if required by the experiment
+# [NODE]       = node number
 # [SCHEDULE]   = the client schedule used
+# [SERVER]     = for clients only, server to use, if required by the experiment
 # [SIZE]       = the data size in megabytes
+# [START]      = the start program, usually [EXPERIMENT]-[TYPE] or just [TYPE]
+# [TYPE]       = client, server, router, director
 
 hostname [TYPE][NODE]
 print /tmp/results/[TYPE][NODE].[EXPERIMENT].[SCHEDULE].[SIZE] overwrite binary
@@ -16,5 +17,8 @@ memory memswap 1
 self self 10
 cpu cpu 1
 
-program experiment 5 /tmp/experiment/start-[EXPERIMENT]-[TYPE] [INTERFACE] [SERVER]
+program experiment 5 /tmp/experiment/start-[START] [INTERFACE] [SERVER]
+
+receive /tmp/lwmon.socket
+cmd_measure 100 lavg memswap cpu
 

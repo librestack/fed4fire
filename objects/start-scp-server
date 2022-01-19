@@ -1,7 +1,22 @@
 #!/bin/sh
 
-# nothing to do for the server, so we sleep until the experiment ends;
-# at which point the controlling script will save the measurements
+# start our own sshd on a different port so we can monitor it,
+# and get easier connect/disconnect logs; unlike the other experiments,
+# which write directly to the lwmon socket, here we use an unmodified
+# sshd so we have to parse the output
 
-exec sleep 86400
+logit=true
+exec >> "$logfile"
+sudo /usr/sbin/sshd -D -e -p 7722 -o 'PidFile /tmp/experiment.pid' 2>&1 | \
+while read line
+do
+    $logit && lwmon-log -n "$type$number" server_scp start
+    logit=false
+    echo "$line"
+    case "$line" in
+	'Accepted publickey'*) lwmon-log -n "$type$number" server_scp request ;;
+	'Received disconnect'*) lwmon-log -n "$type$number" server_scp done ;;
+    esac
+done
+lwmon-log -n "$type$number" server_scp end
 

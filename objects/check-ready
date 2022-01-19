@@ -1,0 +1,12 @@
+#!/bin/sh
+
+# check if server/router has started
+
+type="$1"
+fn="`ls /tmp/results 2>/dev/null`"
+[ ".$fn" = . ] && exit 1
+results="`lwmon -R "/tmp/results/$fn" -P- 2>/dev/null | grep "${type}_.*start"`"
+[ ".$results" = . ] && exit 1
+echo OK
+exit 0
+

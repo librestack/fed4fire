@@ -22,6 +22,7 @@ my %authority = (
 );
 
 my ($R, $L, $RSPEC, $RUNFILE, $RENEWFILE, $DELETEFILE, $SCRIPT, $PWD, %K, $EXP);
+my (@U, $LOGIN);
 my $S = 1;
 my $TIME = 120;
 my $DIR = '/var/tmp';
@@ -52,9 +53,11 @@ while (@config) {
     $A =~ /^DELETEFILE=(.+)$/i and $DELETEFILE = $1, next;
     $A =~ /^RENEWFILE=(.+)$/i and $RENEWFILE = $1, next;
     $A =~ /^SCRIPT=(.+)$/i and $SCRIPT = $1, next;
+    $A =~ /^LOGIN=(.+)$/i and ($LOGIN = $1) =~ s|^~/|$ENV{HOME}/|, next;
     $A =~ /^PWD=(.+)$/i and $PWD = $1, next;
     $A =~ /^EXP=(.+)$/i and $EXP = $1, next;
     $A =~ /^DIR=(.+)$/i and $DIR = $1, next;
+    $A =~ /^U=(.+)$/i and do { push @U, $1; next; };
     if ($A =~ /^K(\w*)=(.*)$/) {
 	my ($user, $key) = ($1, $2);
 	open(KF, '<', $key) or die "K=$key: $!\n";
@@ -422,7 +425,7 @@ sub create_user {
     $user = <<"EOF";
 user:
   pem:
-  - /home/clc/data/login.pem
+  - $LOGIN
 EOF
     defined $PWD or return;
     if ($PWD =~ m|^/|) {
@@ -442,7 +445,7 @@ sub create_runfile {
     create_user();
     (my $r = $rspec) =~ s/^/      /gm;
     $r =~ s/\n+$//s;
-    $runfile = <<"EOF" . $user;
+    $runfile = <<"EOF";
 action: RUN
 actionOutputs:
 - filename: $DIR/$EXP/output.txt
@@ -479,6 +482,11 @@ output:
 shareWith:
   projectMembers: true
 EOF
+    if (@U) {
+	$runfile .= "  users:\n";
+	$runfile .= "  - $_\n" for @U;
+    }
+    $runfile .= $user;
 }
 
 sub create_deletefile {

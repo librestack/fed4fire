@@ -1,8 +1,0 @@
-#!/bin/sh
-
-# end the experiment
-
-killall -TERM iotup
-sleep 1
-killall -KILL iotup >/dev/null 2>&1
-

@@ -1,0 +1,11 @@
+#!/bin/sh
+
+# unicast routing does not need to do anything special, so we
+# sleep until the director terminates the experiment
+
+sleep 86400 &
+echo "$!" > /tmp/experiment.pid
+lwmon-log -n "$type$number" "router_$experiment" start
+wait
+lwmon-log -n "$type$number" "router_$experiment" end
+

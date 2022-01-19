@@ -1,8 +1,49 @@
-#!/bin/sh
+#!/bin/bash
+
+load_sleep=60
+copy_results=true
+copy_logs=false
+sizes=''
+schedules=''
+experiments=''
+default_duration=16
+really=true
+while [ $# -gt 0 ]
+do
+    opt="$1"; shift
+    case "$opt" in
+	-n|--no|--no-copy) copy_results=false ;;
+	-l|--logs|--copy-logs) copy_logs=true ;;
+	-s|--sleep) load_sleep="$1"; shift ;;
+	-d|--duration) default_duration="$1"; shift ;;
+	-z|--size) sizes="$sizes $1"; shift ;;
+	-w|--schedule) schedules="$schedules $1"; shift ;;
+	-e|--experiment) experiments="$experiments $1"; shift ;;
+	-p|--pretend) really=false ;;
+	*) echo "Usage: $0 [options]" >&2
+	   echo "    --no-copy" >&2
+	   echo "    --copy-logs" >&2
+	   echo "    --sleep load_sleep" >&2
+	   echo "    --size S [--size S]..." >&2
+	   echo "    --schedule S [--schedule S]..." >&2
+	   echo "    --experiment E [--experiment E]..." >&2
+	   exit 1
+	   ;;
+    esac
+done
+
+[ ".$sizes" = . ] && \
+    sizes="`cat /tmp/experiment/sizes`"
+[ ".$schedules" = . ] && \
+    schedules="`cd /tmp/experiment; for x in schedule-*; do echo "${x##*schedule-}"; done`"
+[ ".$experiments" = . ] && \
+    experiments="`ls /tmp/experiment | \
+	awk -F- '$1 == "start" && NF > 2 {print $2}' | \
+	sort -u`"
 
 ssh='ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa'
 
-# figure out experiment name
+# figure out testbed name
 exp="`awk '/^NAME/ { print $2}' /tmp/experiment/setup-data`"
 
 # like echo, but with timestamps
@@ -10,150 +51,178 @@ msg() {
     echo "`TZ=GMT date +%H:%M:%S`  $*"
 }
 
+interface=`head -1 /tmp/interface`
+
+wait_path=/tmp/.experiment.wait
+
+# auxiliary functions to wait for other nodes
+prepare_wait() {
+    rm -r "$wait_path" >/dev/null 2>&1
+    mkdir "$wait_path" "$wait_path/wait" "$wait_path/ok"
+}
+
+wait_for() {
+    touch "$wait_path/wait/$1"
+}
+
+finish_wait() {
+    local type="$1"
+    local what="$2"
+    local dir="$3"
+    local wa="`cd "$wait_path/wait" && ls | sort -n | tr '\n' ' '`"
+    wa="${wa% }"
+    if [ ".$wa" != . ]
+    then
+	local ok=''
+	msg "Waiting for ${type}s ($wa) to $what"
+	while [ ".$wa" != . ]
+	do
+	    change=false
+	    for rn in $wa
+	    do
+		$really && { [ -f "$dir/$type$rn."* ] || continue; }
+		mv "$wait_path/wait/$rn" "$wait_path/ok/$rn"
+		change=true
+	    done
+	    if $change
+	    then
+		ok="`cd "$wait_path/ok" && ls | sort -n | tr '\n' ' '`"
+		ok="${ok% }"
+		wa="`cd "$wait_path/wait" && ls | sort -n | tr '\n' ' '`"
+		wa="${wa% }"
+		[ ".$wa" = . ] && break
+		msg "OK $ok -- WAIT $wa"
+	    fi
+	    sleep 1
+	done
+	msg "All ${type}s ($ok) $what"
+    fi
+    rm -r "$wait_path" >/dev/null 2>&1
+}
+
+run_all() {
+    local action="$1"; shift
+    local ntype="$1"; shift
+    local what="$1"; shift
+    local dir="$1"; shift
+    local any_nodes=false
+    local node type number host port user
+    prepare_wait
+    while read node type number host port user
+    do
+	[ "$node" = NODE ] || continue
+	[ "$type" = "$ntype" ] || continue
+	$any_nodes || msg "$action ${ntype}s"
+	any_nodes=true
+	wait_for "$number"
+	args=( )
+	for a in "$@"
+	do
+	    case "$a" in
+		'[TYPE]') args+=( "$type" ) ;;
+		'[NUMBER]') args+=( "$number" ) ;;
+		*) args+=( "$a" ) ;;
+	    esac
+	done
+	if $really
+	then
+	    $ssh -p$port $user@$host -n "${args[@]}" &
+	else
+	    echo "*** ssh $host ${args[*]}"
+	fi
+    done < /tmp/experiment/setup-data
+    finish_wait "$ntype" "$what" "$dir"
+}
+
 # run an experiment for each requested size
-while read size
+for size in $sizes
 do
-    msg "Running experiments, size=$size"
+    msg "Preparing random file, size=$size"
     # we need the file to be identical on all servers,
     # so we make one up here and copy to all servers
-    dd if=/dev/urandom bs=1048576 count=$size of=/tmp/datafile || continue
-    while read what type number host port user
-    do
-	[ "$what" = NODE ] || continue
-	[ "$type" = server ] || continue
-	rsync -avHPe "$ssh -p$port" /tmp/datafile $user@$host:/tmp/datafile < /dev/null
-    done < /tmp/experiment/setup-data
-    echo
-    ls /tmp/experiment | \
-	awk -F- '$1 == "start" && NF > 1 {print $2}' | \
-	sort -u | \
-	while read experiment
-    do
-	for schedule in /tmp/experiment/schedule-*
+    # also for one of the experiments we need the digest on
+    # all clients
+    if $really
+    then
+	dd if=/dev/urandom bs=1048576 count=$size \
+	    of=/tmp/datafile status=none || continue
+	openssl dgst -blake2b512 -hex -r /tmp/datafile | \
+	    awk '{print $1}' > /tmp/datafile.digest
+    fi
+    if $really
+    then
+	while read what type number host port user
 	do
-	    schedule="${schedule##*schedule-}"
+	    [ "$what" = NODE ] || continue
+	    [ "$type" = server ] && \
+		rsync -aqHPe "$ssh -p$port" --whole-file --inplace \
+		      /tmp/datafile $user@$host:/tmp/datafile < /dev/null
+	    [ "$type" = client ] && \
+		rsync -aqHPe "$ssh -p$port" --whole-file --inplace \
+		      /tmp/datafile.digest $user@$host:/tmp/datafile.digest < /dev/null
+	done < /tmp/experiment/setup-data
+    fi
+    echo
+    msg "Running experiments, size=$size"
+    echo
+    for experiment in $experiments
+    do
+	# each experiment gets passed the duration of the previous experiment,
+	# so that "random" (which is normally after "immediate" can adapt the
+	# random wait based on this; first time though we just make up a number
+	duration=$default_duration
+	for schedule in $schedules
+	do
 	    if [ -f /tmp/only-run ]
 	    then
 		grep -q "^$experiment\\.$schedule\$" /tmp/only-run || continue;
 	    fi
 	    # make sure the 1-minute load average on all nodes is back to its
 	    # baseline value (probably 0) before we start this experiment
-	    msg "Sleeping 60 seconds to let load average return to baseline level"
-	    sleep 60
-	    rm -r /tmp/results /tmp/logs >/dev/null 2>&1
-	    mkdir /tmp/results /tmp/logs
+	    msg "Sleeping $load_sleep seconds to let load average return to baseline level"
+	    $really && sleep $load_sleep
+	    rm -r /tmp/results /tmp/logs /tmp/ready >/dev/null 2>&1
+	    mkdir /tmp/results /tmp/logs /tmp/ready
 	    echo
-	    msg "Running experiment=$experiment schedule=$schedule size=$size"
-	    # start the experiment
-	    while read what type number host port user
-	    do
-		[ "$what" = NODE ] || continue
-		[ "$type" = server -o "$type" = client -o "$type" = router ] || continue
-		sshrun="$ssh -p$port $user@$host -n"
-		$sshrun /tmp/experiment/start "$schedule" "$experiment" \
-		    "$type" "$number" "$size" &
-	    done < /tmp/experiment/setup-data
-	    # wait for all clients to report completion
+	    if [ "$schedule" = immediate ]
+	    then
+		msg "Running experiment=$experiment schedule=$schedule size=$size"
+	    else
+		msg "Running experiment=$experiment schedule=$schedule size=$size (delay limit: $duration)"
+	    fi
 	    echo "$experiment $schedule $size" > /tmp/current-experiment
-	    msg "Experiment started, waiting for client results"
-	    previous=''
-	    while true
-	    do
-		ok=''
-		waiting=''
-		while read what type number host port user
-		do
-		    [ "$what" = NODE ] || continue
-		    [ "$type" = client ] || continue
-		    if [ -f "/tmp/results/$type$number.$experiment.$schedule.$size" ]
-		    then
-			ok="$ok $number"
-		    else
-			waiting="$waiting $number"
-		    fi
-		done < /tmp/experiment/setup-data
-		if [ ".$waiting" = . ]
+	    # start all routers and servers
+	    run_all Starting router 'start up' /tmp/ready \
+		    /tmp/experiment/start "$schedule" "$experiment" '[TYPE]' '[NUMBER]' "$size" "$duration"
+	    run_all Starting server 'start up' /tmp/ready \
+		    /tmp/experiment/start "$schedule" "$experiment" '[TYPE]' '[NUMBER]' "$size" "$duration"
+	    # start all clients and run the experiment
+	    before=`date +%s`
+	    run_all Starting client complete /tmp/results \
+		    /tmp/experiment/start "$schedule" "$experiment" '[TYPE]' '[NUMBER]' "$size" "$duration"
+	    [ "$schedule" = immediate ] && duration=$(( `date +%s` - $before ))
+	    # stop servers and routers
+	    run_all Stopping server complete /tmp/results /tmp/experiment/stop
+	    run_all Stopping router complete /tmp/results /tmp/experiment/stop
+	    if $copy_results && $really
+	    then
+		# create result tarballs and copy them to server
+		msg "Copying results to server"
+		tarball="/tmp/$exp-$experiment-$schedule-$size-`date +%Y%m%d%H%M%S`.tar.gz"
+		tar czf "$tarball" -C /tmp/results .
+		rsync -avHP --inplace "$tarball" f4fresults.w42.org::f4f-results/
+		rm "$tarball"
+		if $copy_logs
 		then
-		    msg 'All client results received'
-		    break
+		    tar czf "$tarball" -C /tmp/logs .
+		    rsync -avHP --inplace "$tarball" f4fresults.w42.org::f4f-logs/
+		    rm "$tarball"
 		fi
-		if [ ".$ok" = . ]
-		then
-		    message="WAIT:$waiting"
-		else
-		    message="OK:$ok --- WAIT:$waiting"
-		fi
-		if [ ".$previous" != ".$message" ]
-		then
-		    msg "$message"
-		    previous="$message"
-		fi
-		sleep 2
-	    done
-	    # make sure all copies are complete, not just started
-	    msg Waiting to make sure all rsyncs completed
-	    sleep 4
-	    msg "Stopping experiment"
-	    while read what type number host port user
-	    do
-		[ "$what" = NODE ] || continue
-		[ -x "/tmp/experiment/stop-$experiment-$type" ] || continue
-		sshrun="$ssh -p$port $user@$host -n"
-		$sshrun "/tmp/experiment/stop-$experiment-$type"
-	    done < /tmp/experiment/setup-data
-	    msg "Experiment stopped, waiting for server/router results"
-	    previous=''
-	    while true
-	    do
-		ok=''
-		waiting=''
-		while read what type number host port user
-		do
-		    [ "$what" = NODE ] || continue
-		    [ "$type" = client ] && continue
-		    [ "$type" = director ] && continue
-		    if [ -f "/tmp/results/$type$number.$experiment.$schedule.$size" ]
-		    then
-			ok="$ok $type$number"
-		    else
-			waiting="$waiting $type$number"
-		    fi
-		done < /tmp/experiment/setup-data
-		if [ ".$waiting" = . ]
-		then
-		    msg 'All results received'
-		    break
-		fi
-		if [ ".$ok" = . ]
-		then
-		    message="WAIT:$waiting"
-		else
-		    message="OK:$ok; WAIT:$waiting"
-		fi
-		if [ ".$previous" != ".$message" ]
-		then
-		    msg "$message"
-		    previous="$message"
-		fi
-		sleep 2
-	    done
-	    # make sure all copies are complete, not just started
-	    msg Waiting to make sure all rsyncs completed
-	    sleep 4
-	    # create result tarballs and copy them to server
-	    msg "Copying results to server"
-	    tarball="/tmp/$exp-$experiment-$schedule-$size-`date +%Y%m%d%H%M%S`.tar.gz"
-	    tar czf "$tarball" -C /tmp/results .
-	    scp -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
-		-P722 "$tarball" jfed@f4fresults.w42.org:results/
-	    rm "$tarball"
-	    tar czf "$tarball" -C /tmp/logs .
-	    scp -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
-		-P722 "$tarball" jfed@f4fresults.w42.org:logs/
-	    rm "$tarball"
+	    fi
 	    # clean up
-	    rm -r /tmp/results /tmp/logs
+	    rm -r /tmp/results /tmp/logs /tmp/ready
+	    echo
 	done
     done
-done < /tmp/experiment/sizes
+done
 

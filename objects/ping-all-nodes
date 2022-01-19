@@ -6,6 +6,8 @@ while read what type number hwaddr ipv4 ipv6
 do
     [ "$what" = ADDR ] || continue
     ping -c1 -n -W1 "$ipv6" >/dev/null 2>&1 && continue
+    sleep 1
+    ping -c1 -n -W1 "$ipv6" >/dev/null 2>&1 && continue
     echo "Fail: $type$number"
     ok=false
 done < /tmp/experiment/setup-data

@@ -2,5 +2,7 @@
 
 # run iotupc until it gets all the data it needs
 
-exec sudo iotupc /tmp/datafile ff1e::42 "$1" >"$logfile" 2>&1
+sudo iotupc /tmp/datafile ff1e::42 "$1" >>"$logfile" 2>&1 &
+echo "$!" > /tmp/experiment.pid
+wait
 

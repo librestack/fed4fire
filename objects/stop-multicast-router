@@ -1,8 +1,0 @@
-#!/bin/sh
-
-# end the experiment
-
-sudo killall -TERM pim6sd
-sleep 1
-sudo killall -KILL pim6sd >/dev/null 2>&1
-

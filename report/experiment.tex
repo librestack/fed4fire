@@ -11,7 +11,8 @@
 
 \setlength{\unitlength}{0.01\linewidth}
 \def\topfaction{0.6}
-\def\bottomfraction{0.6}
+\def\bottomfraction{0.7}
+\setcounter{totalnumber}{5}
 
 \newcommand{\TODO}[1]{\par\noindent%
 \hspace*{\fill}%
@@ -73,27 +74,30 @@ a large file to a large number of nodes.
 To provide evidence for the above statements, we compare the
 following methods of providing updates:
 
-\begin{itemize}
-\item Traditional unicast using a TCP-based service: a
+\begin{list}{multicast}{}
+\item[tcp:]
+Traditional unicast using a TCP-based service: a
 server listens to TCP requests to send a copy of the software
 update, and each client requests
 the update from the server: this is the mechanism used by the vast
 majority of current services.
-\item Full multicast: a number of servers provide the software
+\item[scp:]
+Simple copy of the file using ``scp'' followed by a verification
+of the checksum; this is included mostly to confirm that the setup
+works correctly with standard, well-tested tools.
+\item[multicast:]
+Full multicast: a number of servers provide the software
 update using multicast, and clients will obtain the updates by
 joining a multicast group and waiting for the data to arrive.
-\item Unicast using a UDP-based service: this is similar to the
+\item[udp:]
+Unicast using a UDP-based service: this is similar to the
 TCP case, but uses datagrams instead of virtual circuits: this
 mechanism is introduced because multicast is by necessity based
 on datagrams: there is no feedback from receiver to sender, and
 we want to help determine which differences may be caused by
 unicast vs.\ multicast, and which ones by virtual circuits vs\.
 datagrams.
-\end{itemize}
-
-Additionally, we also measure the effect of a simple ``scp''
-of the file, to confirm that the setup works with standard,
-well-tested tools.
+\end{list}
 
 Apart from the ``scp'' runs, do not use encryption in this experiment,
 all the three methods send the data unencrypted and verify that it
@@ -104,15 +108,19 @@ do not expect the results to be different when excription is used for
 all transmissions, as used in many other cases, but we might consider
 a future experiment to test this.
 
-Independently of the method selected, there are two ``client''
+Independently of the method selected, there are three ``client''
 scheduling strategies:
 
-\begin{itemize}
-\item All clients request updates at approximately the same time
-(the ``immediate'' strategy).
-\item Clients wait a random time before requesting the update
-(the ``random'' strategy).
-\end{itemize}
+\begin{list}{immediate}{}
+\item[immediate:]
+All clients request updates at approximately the same time.
+\item[random:]
+Each client will first wait a random time, up to the duration
+of the corresponding experiment using the ``immediate'' strategy.
+\item[random2:]
+Each client will first wait a random time, up to twice the duration
+of the corresponding experiment using the ``immediate'' strategy.
+\end{list}
 
 We run the simulated software updates in a variety of network
 configurations and with a variety of file sizes to simulate the
@@ -217,12 +225,10 @@ update provider appropriate for the selected update method.  These
 update providers are described below.
 
 After the server has started, the director asks all client nodes to
-start as well: each client will first wait a short time depending on
-the scheduling strategy: a fixed 4 seconds for ``immediate'' or a
-random duration between 4 and 36 seconds for ``random''; the minimum
-wait of 4 seconds is to make sure the rest of the system is fully
-ready to run. After this delay, each client starts a resource monitoring
-daemon identical to the one running on the server, and a client
+start as well; for the ``random'' and ``random2'' scheduling strategies
+each client will first wait a random time, this step is skipped
+for the ``immediate'' strategy; then each client starts a resource
+monitoring daemon identical to the one running on the server, and a client
 program to obtain the update.
 
 When a client has successfully obtained the update, the monitoring
@@ -232,7 +238,8 @@ resource measurements, and sends all the data back to the director.
 The director waits for all clients to have sent the data, then asks the
 server to stop, which will also trigger a copy of the server's resource
 measurements back to the director: all the measurements from all nodes
-are collected into a single ``tar'' archive and saved for later analysis.
+are collected into a single ``tar'' archive and copied to one of our
+servers for later analysis.
 
 The resource monitoring daemon records the following data every second:
 
@@ -256,6 +263,16 @@ the program obtaining the update for clients):
 \item The termination status: whether the program reported an error
 \end{itemize}
 
+The program running to provide the update method will also log some
+data via the same mechanism; unicast servers log the time of each
+request received and the time the corresponding reply has been
+sent completely: this allows a very precise count of the number of
+clients ``active'' (i.e. using server's resources) at any time, but
+it is not possible for multicast where the server only knows whether
+at least one client is active, or they are all inactive. The information
+about number of active clients is provided by the client logs in this
+case, and is sligtly less accurate.
+
 Since the experiment procedure is automated by running a single program
 on the director, where possible we ran it many times on the same
 testbed, to have more experimental data without the extra overhead
@@ -263,68 +280,77 @@ of setting up a new testbed.
 
 We ran three versions of this experiment, with 20 and 64 clients.  We
 have been unable to run a larger experiment as there were never sufficient
-resources available on the testbed, so we have been unable to show scale
-issues properly.
+resources available on the testbed, so we leave detailed study of scale
+issues to a future experiment.
 
 \subsection{Update methods}
 The ``multicast'' method uses the ``IoT updater'' demonstration
-program~\cite{iotupd:paper} to copy a file from server to clients: on the
-server side ``iotupd'' calculates the file's checksum, then runs a loop in
-which it sends the whole file and the checksum to a specified multicast
-group, then repeats the sending until asked to stop at the end of the
-experimend.  Each client runs ``iotupc'' which waits for the data to
-arrive on the specified group and saves it to a local file, stopping when
-the file checksum matches.  There is no feedback from client to server,
-and no mechanism for a client to require retransmission of missing data;
-however the client can just wait for the server to send it again. More
-details on the IoT updater can be found in appendix~\ref{iotupd} or in
-the source code~\cite{iotupd:sources}.
+program~\cite{iotupd:paper} to copy a file from server to clients: on
+the server side ``iotupd'' calculates the file's checksum, notifies the
+director that it's ready to send data, then runs a loop in which it sends
+the whole file and the checksum to a specified multicast group, then
+repeats the sending until asked to stop at the end of the experimend.
+Each client runs ``iotupc'' which waits for the data to arrive on the
+specified group and saves it to a local file, stopping when the file
+checksum matches.  The only feedback from client to server is provided
+by MLD (Multicast Listener Discovery) messages, which allow the server
+to know if there is at least one active client, or if they are all
+inactive: in particular, there is no mechanism for a client to request
+retransmission of missing data; however the client can just wait for the
+server to send it again. More details on the IoT updater can be found
+in appendix~\ref{iotupd} or in the source code~\cite{iotupd:sources}.
 
 The unicast ``scp'' method just uses the ``scp'' program (part of
 openssh) on each client to connect to the server and ask for a copy of
-the file: this allows us to show that the experiment setup is working
-with some well-known software; however the presence of encryption
-means that the results are not directly comparable with other experiments;
-a future experiment in which all methods use encryption will of course
-benefit from inclusion of this method.
+the file; then it calculates the file digest and compares it wit the
+digest provided by the director, repeating the whole thing in the
+unlikely case there is a mismatch: this allows us to show that the
+experiment setup is working with some well-known software; however the
+presence of encryption means that the results are not directly comparable
+with other experiments; a future experiment in which all methods use
+encryption will of course benefit from inclusion of this method.
+Instead of using the ``ssh'' daemon already running on each node, we
+chose to start another one on a different TCP port, so we can monitor
+precisely the server resource usage.
 
-The unicast ``tcp'' experiment is similar in concept to the ``scp'' one,
-but implemented with code as similar as possible to the multicast case
-to make comparisons more meaningful.  On the server side, the ``iotup''
-program (in TCP server mode) calculates the file checksum then waits for
-connections; it replies to each connection with the file checksum and
-the full file data, sent as a single TCP stream.  On the client side,
-the ``iotup'' program (in TCP client mode) connects to server, saves the
-file data, calculates the checksum and compares it with the one sent by
-the server; if the checksum match, the program exits with success, otherwise
-it retries the whole download. Because TCP already does its own verification,
+The unicast ``tcp'' experiment is similar in concept to the ``scp''
+one, but implemented with code as similar as possible to the multicast
+case to make comparisons more meaningful.  On the server side, the
+``iotup'' program (in TCP server mode) calculates the file checksum,
+notifies the director that it is ready, then waits for connections;
+it replies to each connection with the file checksum and the full file
+data, sent as a single TCP stream.  On the client side, the ``iotup''
+program (in TCP client mode) connects to server, saves the file data,
+calculates the checksum and compares it with the one sent by the server;
+if the checksum match, the program exits with success, otherwise it
+retries the whole download. Because TCP already does its own verification,
 it is unlikely that the client will ever have to retry in this experiment
 when everything runs in the same building; however in a future larger and
 more distributed experiment we can expect to encounter network issues
 which will require retries from the client. The ``iotup'' program is
-described more fully in appendix~\ref{unisync} and its sources are available
-in~\cite{unisync:sources}.
+described more fully in appendix~\ref{unisync} and its sources are
+available in~\cite{unisync:sources}.
 
 The unicast ``udp'' method is very similar to the ``tcp'' method,
-but uses UDP rather than TCP and that implies that retransmissions
-and duplicate detection need to be handled at the application level.
-On the server side, the ``iotup'' program (in UDP server mode) calculates
-the file checksum, then waits for requests coming in via UDP; these
-request specify a range of bytes to send, and the server replies with a
-sequence of UDP packets, each of which contain the same information as
-the packets sent using the ``multicast'' method.  Each client starts by
-requesting the whole file (specifying both start and end offsets as 0,
-which the server interprets as ``from 0 to end of file'') and waiting
-for data: if there is no reply within a pre-determined time, it will
-retry the request.  Once at least one packet arrives to the client,
-it will know the total data size and the file checksum, and will have
-part of the data.  The client will wait until all the expected data has
-arrived, or a timeout occurs in which no new packets have arrived for a
-pre-defined time.  The client will then decide whether any part of the
-file needs retransmitting and continue until it has received all the
-data it expects, and the file checksum matches.  The ``iotup'' program
-is described more fully in appendix~\ref{unisync} and its sources are
-available in~\cite{unisync:sources}.
+but uses UDP rather than TCP and that implies that retransmissions and
+duplicate detection need to be handled at the application level.  On the
+server side, the ``iotup'' program (in UDP server mode) calculates the
+file checksum, notifies the director that it is ready for clients, then
+waits for requests coming in via UDP; these request specify a range of
+bytes to send, and the server replies with a sequence of UDP packets,
+each of which contain the same information as the packets sent using the
+``multicast'' method.  Each client starts by requesting the whole file
+(specifying both start and end offsets as 0, which the server interprets
+as ``from 0 to end of file'') and waiting for data: if there is no reply
+within a pre-determined time, it will retry the request.  Once at least
+one packet arrives to the client, it will know the total data size and the
+file checksum, and will have part of the data.  The client will wait until
+all the expected data has arrived, or a timeout occurs in which no new
+packets have arrived for a pre-defined time.  The client will then decide
+whether any part of the file needs retransmitting and continue until
+it has received all the data it expects, and the file checksum matches.
+The ``iotup'' program is described more fully in appendix~\ref{unisync}
+and its sources are available in~\cite{unisync:sources}.
 
 \section{``Two LANs'' experiment}
 \label{TWOLAN:experiment}
@@ -336,7 +362,7 @@ are on the second LAN.  Like the previous experiments, the parameters are
 the number of clients ${\cal C}$, and the update size in bytes ${\cal N}$.
 
 Figure~\pref{s1:r1:c8}
-\begin{figure}[bp]
+\begin{figure}[btp]
 \begin{center}
 \begin{picture}(90,38)
 \put(45,31){\makebox(0,0){\rm\bf S}}
@@ -367,7 +393,10 @@ we only describe the differences between them here.
 
 After copying the update data to the server and waiting 60 seconds, the
 director will ask the router to start its own resource monitoring, and,
-for the multicast experiment, to start a multicast routing daemon.
+for the multicast experiment, to start a multicast routing daemon. We
+used ``pim6sd''~\cite{pim6sd:sources} for this experiment, although we
+plan to develop our own multicast routing daemon and future experiments
+will use it.
 
 The server wait 2 seconds before starting, to give the router time to be
 fully set up.
@@ -389,7 +418,7 @@ the number of routers in the path, ${\cal R}$. The total number of clients
 will be ${\cal C} = {\cal L} * 2^{{\cal R} - 1}$, and the routers form a
 tree structure.
 
-A couple of exampels will make this clearer: figure~\pref{s1:r3:l2}
+A couple of examples will make this clearer: figure~\pref{s1:r3:l2}
 \begin{figure}[bp]
 \begin{center}
 \begin{picture}(90,62)
@@ -424,7 +453,7 @@ shows the network topology with ${\cal R} = 3$ and ${\cal L} = 2$,
 so that the 8 clients are organised in 4 separate LANs, with
 7 routers forming a tree structure with the server connected to
 the root of the tree. For comparison, figure~\pref{s1:r2:l4}
-\begin{figure}[bp]
+\begin{figure}[bpt]
 \begin{center}
 \begin{picture}(90,50)
 \put(45,43){\makebox(0,0){\rm\bf S}}
@@ -831,7 +860,8 @@ S1L8:1640684316-udp-random-
 \end{verbatim}
 \end{small}
 
-which has been produced by the network we named ``S1L8'', booted when
+\noindent
+this example has been produced by the network we named ``S1L8'', booted when
 the time on our local system was 1640684316 seconds after the epoch; this
 archive contains the results for the ``udp'' method with ``random''
 scheduling and a data size of 2048MB; the run ended on December 29, 2021
@@ -841,64 +871,19 @@ network they generate unique names for each run (the name has been
 folded into multiple lines to fit in the layout of the report, but
 of course it is a single string).
 
-If the tar archives are in {\tt\textasciitilde/raw-data}, to extract them to
-{\tt\textasciitilde/extracted-data} while renaming files as described:
-
-\begin{small}
-\begin{verbatim}
-$ extract-data ~/raw-data \
-  ~/extracted-data '*'
-\end{verbatim}
-\end{small}
-
-The last argument is a pattern selecting which files will be extracted.
-To extract only some results, use a more specific pattern, for example
-{\tt'S1L8:*'} to select only results from a network named ``S1L8''.
-(Note that this program requires GNU tar to do the file renaming).
-
-The program produces files with names like:
-
-\begin{small}
-\begin{verbatim}
-client5.udp.random.2048.
-S1L8:1640684316.20211229061449
-\end{verbatim}
-\end{small}
-
-which contain the same information as the archive name (in a different order),
-plus the name of the node which produced a particular file (client5 in this
-case).  These files are raw binary data produced by ``lwmon'' so the next
-step is to import them into a database.
-
-The ``import-into-sqlite'' script, included in the repository, is a
-wrapper around ``lwmon-to-sql'' and ``sqlite'' to import the data into
-a database with a suitable schema.  This relies on both lwmon and sqlite
-to be installed.
-
-To use this wrapper, simply give it the name of the database and the list of
-files to add:
-
-\begin{small}
-\begin{verbatim}
-import-into-sqlite DB.sqlite \
-  ~/extracted-data/*
-\end{verbatim}
-\end{small}
-
-If the database does not exist, the program creates it automatically
-with the following columns:
+We use a database with the following columns:
 
 \begin{small}
 \begin{verbatim}
 topology    varchar(255)
 boot_time   int
-host        varchar(255)
 experiment  varchar(255)
 schedule    varchar(255)
 datasize    int
-run         int
-timestamp   int
+end_run     int
+host        varchar(255)
 
+timestamp   int
 name        varchar(255)
 parm        varchar(255)
 key         varchar(255)
@@ -906,40 +891,147 @@ value       int
 \end{verbatim}
 \end{small}
 
-The first group of columns are determined from the file name (``host''
-is the node name, like client5 or router0, and ``topology'' is an
-identifier for the network topology, derived from the name given
-to the testbed); the second group of columns are the data produced
-by ``lwmon''.
+The first group of columns are determined from the archive name and
+the member file names within the archive: ``host'' is the node name,
+like client5 or router0, ``topology'' is an identifier for the network
+topology, derived from the name given to the testbed, the other columns
+contain the obvious values.
+
+The second group of columns are the data produced by ``lwmon'' for a
+particular experiment and node.
+
+If the tar archives are in {\tt\textasciitilde/raw-data}, the
+``import-into-sqlite'' script extracts the data from the archives
+and imports it into a database with the appropriate schema,
+creating it if it does not exist:
+
+\begin{small}
+\begin{verbatim}
+$ import-into-sqlite DB.sqlite \
+  ~/raw-data/*
+\end{verbatim}
+\end{small}
+
+The program determines if a file has already been imported and skips
+it automatically, so it's possible to just run it on the whole
+directory after new data has been produced. It relies on the
+``lwmon-to-sql'' program included with ``lwmon'', and of course
+on the sqlite database to be installed.  There is nothing requiring
+sqlite particularly, it would be possible to use other databases
+by changing the connection information in the script.
+
+\TODO{Make DB with all experiment data available somewhere}
 
 \subsection{Analysing results}
 {\em The programs described here are in the ``experiment scripts''
 repository~\cite{exp:scripts}.}
 
-\TODO{lookup-result, get-summary}
+A simple program extracts the data from one or more runs, given the
+data items to extract and a number of selection criteria, for update
+method, referred to as ``experiment'' due to the way things had been
+set up initially, scheduling strategy, data size and so on. These are
+specified on the command line, for example:
+
+\begin{small}
+\begin{verbatim}
+$ lookup-result DB.sqlite \
+  server:load \
+  server:totcpu \
+  server:tx \
+  experiment=multicast \
+  schedule=immediate \
+  datasize=2048 | less
+\end{verbatim}
+\end{small}
+
+This will probably produce a lot of data, so it's best to send the output
+to a file or pipe into a pager.  The output looks like the extract in
+figure~\pref{result:example}.
+\begin{figure*}[bp]
+\begin{small}
+\begin{verbatim}
+RUN: S1L64      2021-12-27 19:06:48
+     multicast  immediate   2048  2021-12-27 13:51:06
+ run     num     server:load   server:totcpu   server:tx
+time   clients     server0        server0       server0
+   0         0        0.29
+   1         3        0.29          0.930             0
+   2        43        0.34          1.010             0
+   3        64        0.34          0.990             0
+   4        64        0.34          1.021             0
+   5        64        0.34          0.990             0
+   6        64        0.34          1.000             0
+   7        64        0.40          1.000          8125
+   8        64        0.40          1.010        122552
+   9        64        0.40          1.000        122596
+  10        64        0.40          0.990        122571
+  11        64        0.40          1.010        122458
+  12        64        0.45          1.000        122604
+  13        64        0.45          0.990        122547
+  14        64        0.45          1.000        122609
+  15        64        0.45          1.000        122476
+  16        64        0.45          1.000        122562
+  17        64        0.49          1.010        122612
+  18        64        0.49          0.990        122584
+...
+ 184         1        1.00          1.000        122497
+ 185         1        1.00          1.000        122554
+ 186         1        1.00          1.010        122609
+ 187         0        1.00          0.990        122628
+ 188         0        1.00          1.000        122481
+ 189         0        1.00          1.000        122612
+\end{verbatim}
+\end{small}
+\caption{Example experiment result}
+\label{result:example}
+\end{figure*}
+The program determines the number of active clients by combining information
+about client start and stop times and adds that to the table.  It can also
+produce a new database with the results by just adding {\tt out=}{\em NAME\/}
+to the command line, in which case it's useful to ask for ``all''
+available information instead of a specific list of fields:
+
+\begin{small}
+\begin{verbatim}
+$ lookup-result DB.sqlite \
+  all \
+  experiment=multicast \
+  schedule=immediate \
+  datasize=2048 \
+  out=/tmp/summary.sqlite
+\end{verbatim}
+\end{small}
+
+This new database will contain different columns from the input one,
+for example there is a new ``n\_clients'', and the ``host'' has been
+replaced by a ``host\_type'' (client, server or router, rather than
+client15, router2) and can be used as input to some of the other tools
+which show summary data.  All available runs can be summarised by
+omitting the selection criteria (this will take a long time to run):
+
+\begin{small}
+\begin{verbatim}
+$ lookup-result DB.sqlite \
+  all out=/tmp/summary.sqlite
+\end{verbatim}
+\end{small}
+
+\TODO{Make DB with above summary.sqlite available somewhere}
+
+\TODO{get-summary}
 
 \section{Important notes on repeating this experiment}
 \label{configuration}
-Several RFCs, for example RFC 2710~\cite{rfc:2710}, require that routers
-on an IPv6 network perform the router part of MLD, i.e.\ they forward
-multicast packets to all nodes which listen for them, and to no other
-nodes.  This experiment requires this to produce the most useful data,
-or in some cases, to produce any data at all.
+IPv6 requires multicast, however when preparing to run this experiment
+we found that some testbeds did not actually support it.
 
-While running the experiment we have determined that some testbeds were
-not configured as required and either forwarded all traffic independently
-of the presence of listeners, or worse did not forward traffic at all,
-even to nodes requesting it. It is essential to verify the degree of
-compliance with RFC TODO before repeating the experiment, as this will
-affect the results.
-
-It is very easy to check that multicast packets are forward between nodes:
+It is very easy to check that multicast packets are forwarded between nodes:
 build ``mcastsend'' and ``mcastread'' from mcast-tools~\cite{mcast-tools},
 select two nodes in an experiment which are connected to the same LAN,
 and run code like the one shown in figure~\pref{mcast:test}, where the
 interface names in the command must be changed to reflect the actual
 network interface used on these nodes.
-\begin{figure*}[bp]
+\begin{figure*}[tbp]
 \begin{verbatim}
 node1$ yes 'multicast testing' | \
        mcastsend -i $INTERFACE ff1e::42 4242
@@ -980,18 +1072,17 @@ listeners on the third node, the expected result is that multicast
 packets leave node1, arrive at node2, but are not visible on node3:
 this is the effect of MLD snooping on the switch, forwarding packets
 only to nodes which require them, and it is the best condition to
-run the experiment, as well as being the one fully compliant with
-RFC TODO.
+run the experiment, as it produces the most useful results.
 
 If the packets arrive at all nodes, the experiment can still proceed,
-but the network usage results for the multicast experiment will not
-be accurate.  It means that the switch has not been configured properly,
-and if possible the experiment should be moved to a different testbed.
+but the network usage results for the multicast experiment will be less
+accurate.  If possible the experiment should be moved to a different
+testbed.
 
 In summary, we need to warn anybody wishing to repeat this experiment
-to first make sure that the system they are using is configured in
-accordance with RFC TODO, to avoid wasting their time on an experiment
-which will produce no results.
+to first make sure that the system they are using is configured for
+IPv6 multicast, to avoid wasting their time on an experiment which will
+produce no results.
 
 \bibliographystyle{plain}
 \begin{thebibliography}{99}
@@ -1013,13 +1104,13 @@ which will produce no results.
   {\em Unicast (TCP/UDP) file syncing test program}.\\
   \url{https://github.com/librestack/unisync}
 
-\bibitem{rfc:2710}
-  Deering, S., Fenner, W. and B. Haberman.
-  {\em Multicast Listener Discovery (MLD) for IPv6}.\\
-  \longurl{https://www.rfc-editor.org/in-notes/rfc2710.txt}%
-  {https://www.rfc-editor.org/}\\
-  \longurl{https://www.rfc-editor.org/in-notes/rfc2710.txt}%
-  {in-notes/rfc2710.txt}
+%\bibitem{rfc:2710}
+%  Deering, S., Fenner, W. and B. Haberman.
+%  {\em Multicast Listener Discovery (MLD) for IPv6}.\\
+%  \longurl{https://www.rfc-editor.org/in-notes/rfc2710.txt}%
+%  {https://www.rfc-editor.org/}\\
+%  \longurl{https://www.rfc-editor.org/in-notes/rfc2710.txt}%
+%  {in-notes/rfc2710.txt}
 
 \bibitem{rfc:3170}
   Quinn B. and K. Almeroth.
@@ -1049,6 +1140,10 @@ which will produce no results.
   {\em F0rth/mcast-tools: package containing IPv6-multicast
   routing daemons and tools}.\\
   \url{https://github.com/F0rth/mcast-tools}
+
+\bibitem{pim6sd:sources}
+  {\em troglobit/pim6sd: PIM for IPv6 sparse mode daemon.}\\
+  \url{https://github.com/troglobit/pim6sd}
 
 \end{thebibliography}
 \end{document}

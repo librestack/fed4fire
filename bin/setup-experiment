@@ -135,7 +135,7 @@ update_file('sizes');
 
 my @ssh = qw(ssh -oCheckHostIP=no -oStrictHostKeyChecking=no);
 
-my $try_key = 'objects/id_rsa';
+my $try_key = 'id_rsa';
 if (-f $try_key) {
     # need to silence ssh as git will create the file with mode 644
     chmod 0600, $try_key;

@@ -1,21 +1,28 @@
 #!/bin/sh
 
+# first clean up any previous results
+sudo rm -r /tmp/results /tmp/logs /tmp/lwmon.socket /tmp/experiment.pid >/dev/null 2>&1
+
 # start the experiment
 
-schedule="$1"
-experiment="$2"
-type="$3"
-number="$4"
-size="$5"
+export schedule="$1"
+export experiment="$2"
+export type="$3"
+export number="$4"
+export size="$5"
+export duration="$6"
 
 # setup-node writes the name of the interface to use for packets here
-interface="`head -1 /tmp/interface`"
+export interface="`head -1 /tmp/interface`"
 
 # select a random server IPv6 address, if the experiment requires it
-server="` \
+export server="` \
     awk '/^ADDR server/ { print $NF }' /tmp/experiment/setup-data | \
     shuf | \
     head -1`"
+
+mkdir /tmp/results /tmp/logs
+export logfile="/tmp/logs/$type$number.$experiment.$schedule.$size"
 
 # run any preparation which we do not want to measure; we only run the
 # first one we find, but if that needs to include a more generic one it
@@ -37,10 +44,26 @@ fi
 # run the scheduler for clients only
 if [ "$type" = client ]
 then
-    "/tmp/experiment/schedule-$schedule"
     # make sure we don't find a permission problem because some experiments
     # run as root, and some don't
     sudo rm -f /tmp/datafile
+    # and run anything needed to schedule the experiment
+    "/tmp/experiment/schedule-$schedule"
+fi
+
+# find how to start this experiment...
+start=''
+for try in "$experiment-$type" "$experiment" "$type"
+do
+    [ -x "/tmp/experiment/start-$try" ] || continue
+    start="$try"
+    break
+done
+
+if [ ".$start" = . ]
+then
+    echo "Don't know how to start $experiment $schedule $type" >&2
+    exit 1
 fi
 
 sed -e 's/\[TYPE\]/'"$type"'/g' \
@@ -50,9 +73,8 @@ sed -e 's/\[TYPE\]/'"$type"'/g' \
     -e 's/\[SERVER\]/'"$server"'/g' \
     -e 's/\[SCHEDULE\]/'"$schedule"'/g' \
     -e 's/\[SIZE\]/'"$size"'/g' \
+    -e 's/\[START\]/'"$start"'/g' \
     /tmp/experiment/lwmon-config > /tmp/lwmon-config
-
-export logfile="/tmp/logs/$type$number.$experiment.$schedule.$size"
 
 ifnum=0
 while read ifname
@@ -61,28 +83,43 @@ do
     echo "network if$ifnum 1 $ifname" >> /tmp/lwmon-config
 done < /tmp/interface
 
-rm -r /tmp/results /tmp/logs >/dev/null 2>&1
-mkdir /tmp/results /tmp/logs
+director="`awk '/^ADDR director/ { print $NF; exit }' /tmp/experiment/setup-data`"
+if [ "$type" = server -o "$type" = router ]
+then
+    # watch for the "start" message and send notifications
+    (
+	for retry in 1 2 3 4 5 6 7 8 9 10
+	do
+	    sleep $retry
+	    [ ".`/tmp/experiment/check-ready "$type"`" = . ] && continue
+	    ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa \
+		"$director" touch "/tmp/ready/$type$number.1"
+	    break
+	done
+    ) &
+fi
 lwmon -c /tmp/lwmon-config
 
 # copy the results back to director -- which seems to be unable to cope
 # with too many incoming connections, hence the loop and retries
-director="`awk '/^ADDR director/ { print $NF; exit }' /tmp/experiment/setup-data`"
 if [ -f "$logfile" ]
 then
     for n in 1 2 3 4 5 6 7 8
     do
-	sleep 1
-	rsync -aqHPe 'ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa' \
+	rsync -aqH --partial --partial-dir .partial \
+	    -e 'ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa' \
 	    "$logfile" "[$director]:/tmp/logs/" && break
+	sleep 1
     done
 fi
 
 for n in 1 2 3 4 5 6 7 8
 do
-    sleep 1
-    rsync -aqHPe 'ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa' \
+    rsync -aqH --partial --partial-dir .partial \
+	-e 'ssh -oCheckHostIP=no -oStrictHostKeyChecking=no -i/tmp/experiment/id_rsa' \
 	--omit-dir-times /tmp/results/ "[$director]:/tmp/results/" && break
+    sleep 1
 done
-rm -r /tmp/results /tmp/logs >/dev/null 2>&1
+
+#rm -r /tmp/results /tmp/logs >/dev/null 2>&1
 

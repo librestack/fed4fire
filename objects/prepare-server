@@ -1,5 +1,0 @@
-#!/bin/sh
-
-# give routers a chance to set up for this experiment
-sleep 2
-

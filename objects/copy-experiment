@@ -10,6 +10,7 @@ do
     [ "$what" = NODE ] || continue
     [ "$type" = director ] && continue
     echo "Copying experiment data to $type$number"
-    rsync -avHPe "$ssh -p$port" /tmp/experiment/ $user@$host:/tmp/experiment/ < /dev/null
+    rsync -avHPe "$ssh -p$port" --delete \
+	  /tmp/experiment/ $user@$host:/tmp/experiment/ < /dev/null
 done < /tmp/experiment/setup-data
 
