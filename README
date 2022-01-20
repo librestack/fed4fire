@@ -106,6 +106,33 @@ or for more complicated rsync options:
 
 ==============================================
 
+To quickly average some data from the experiment, the "averages" script
+may help.  It reads the result tarballs and extracts the required data
+into a sqlite database, then calculates averages, minimum, maximum and
+standard deviation.  The database is considered a cache, so if the same
+tarball is read back in the script will not read the tarball at all.
+Currently, it can determine the total time taken by clients to download
+the update, but the script can be extended to collect other data.
+
+./bin/averages [OPTIONS] DATA_NAME CACHE_DATABASE TARBALL [TARBALL]
+
+DATA_NAME is the data item to extract: currently it can only be "run-time"
+
+OPTIONS can be one or more of:
+
+    -r   show data (e.g. 123.456 seconds instead of 2:03.456)
+    -a   sort by average value (default)
+    -m   sort by maximum value
+    -n   sort by experiment name ("UPDATE SCHEDULE SIZE")
+
+for example, to compare the running time of all "2GB" experiments sorting
+by maximum update time (assuming the tarballs are in ~/results and the
+file names are as produced by the experiment):
+
+./bin/average -m run-time /tmp/cache.sqlite ~/results/*-32-*.tar.gz
+
+==============================================
+
 To extract the data produced by the experiments to a set of files in a
 directory, if the data is in $SRC_DIR and the results will go into
 $DST_DIR:
