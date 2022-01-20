@@ -7,7 +7,6 @@ To create the "LAN" experiment with $C clients:
 C=...
 
 exp="exp.1lan.$C"
-mkdir /tmp/$exp
 ./bin/mknet L=$C EXP=$exp [other options, see below]
 
 To create the "Two LANs" experiment with $C clients:
@@ -15,7 +14,6 @@ To create the "Two LANs" experiment with $C clients:
 C=...
 
 exp="exp.2lan.$C"
-mkdir /tmp/$exp
 ./bin/mknet L=$C R=1 EXP=$exp [other options, see below]
 
 To create the "Generic experiment with $L clients per LAN and $R router levels
@@ -25,7 +23,6 @@ L=...
 R=...
 
 exp="exp.generic.$R.$L"
-mkdir /tmp/$exp
 ./bin/mknet L=$L R=$R EXP=$exp [other options, see below]
 
 other options:
@@ -46,12 +43,12 @@ in to the testbed: the latter key is also used by the nodes to talk to
 each other.
 
 xvfb-run java -Djdk.gtk.version=2 -jar ~/jfed_cli/experimenter-cli2.jar \
-    -a /tmp/$exp/action.yaml
+    -a /var/tmp/$exp/action.yaml
 
 This takes about 10 minutes, then it stops without saying anything;
 to check progress:
 
-tail /tmp/$exp/debug.txt
+tail /var/tmp/$exp/debug.txt
 
 To prepare the testbed for the experiment using $SIZES data sizes
 (a comma-separate list, in megabytes)
