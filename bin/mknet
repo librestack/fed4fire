@@ -3,7 +3,6 @@
 use strict;
 use POSIX 'strftime';
 use FindBin '$Bin';
-use Socket6;
 
 $| = 1;
 
