@@ -32,6 +32,7 @@ other options:
     TIME=180                 time in minutes before the testbed expires,
                              default is 120 (jfed's default)
     AUTH=vwall1              change autority (default: wvall2)
+    AUTH=grid5000            Change authority to GRID5000 (Separate testbed)
     PWD=~/data/login.pwd     file containing password for login.pem
     K=~/.ssh/id_rsa.pub      add another allowed ssh key to the testbed
                              (the one from login.pem and the one in the
