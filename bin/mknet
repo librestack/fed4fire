@@ -19,6 +19,11 @@ my %authority = (
 	urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm
 	urn:publicid:IDN+wall2.ilabt.iminds.be+image+emulab-ops:UBUNTU20-64-STD
     )],
+   grid5000 => [qw(
+        urn:publicid:IDN+am.grid5000.fr+authority+am
+	urn:publicid:IDN+am.grid5000.fr+image+kadeploy3:ubuntu2004-x64-min
+    )],
+
 );
 
 my ($R, $L, $RSPEC, $RUNFILE, $RENEWFILE, $DELETEFILE, $SCRIPT, $PWD, %K, $EXP);
