@@ -10,17 +10,21 @@ my $pr4 = '192.168';
 my $pr6 = sprintf 'fd%02x:%x:%x', rand(256), rand(65536), rand(65536);
 
 my %authority = (
+    # name => [qw(authority disk_image control_interface?)],
     vwall1 => [qw(
 	urn:publicid:IDN+wall1.ilabt.iminds.be+authority+cm
 	urn:publicid:IDN+wall1.ilabt.iminds.be+image+emulab-ops:UBUNTU20-64-STD
+	1
     )],
     vwall2 => [qw(
 	urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm
 	urn:publicid:IDN+wall2.ilabt.iminds.be+image+emulab-ops:UBUNTU20-64-STD
+	1
     )],
-   grid5000 => [qw(
-        urn:publicid:IDN+am.grid5000.fr+authority+am
+    grid5000 => [qw(
+	urn:publicid:IDN+am.grid5000.fr+authority+am
 	urn:publicid:IDN+am.grid5000.fr+image+kadeploy3:ubuntu2004-x64-min
+	0
     )],
 
 );
@@ -84,7 +88,7 @@ $S < 1 and die "S must be at least 1\n";
 $L < 1 and die "L must be at least 1\n";
 defined $R && $R < 1 and die "R must be at least 1\n";
 
-my ($nodeauth, $image) = @{$authority{$AUTH}};
+my ($nodeauth, $image, $ctrl_if) = @{$authority{$AUTH}};
 
 if (! defined $EXP) {
     $EXP = "S$S";
@@ -209,9 +213,13 @@ EOF
     </sliver_type>
     <jfed:ansible_group name="client"/>
     <location xmlns="http://jfed.iminds.be/rspec/ext/jfed/1" x="$posx" y="$posy"/>
+EOF
+	    $rspec .= <<"EOF" if $ctrl_if;
     <interface client_id="client$clientno:if0">
       <ip address="10.0.$clientlan.$clientip" netmask="255.255.255.0" type="ipv4"/>
     </interface>
+EOF
+	    $rspec .= <<"EOF";
     <interface client_id="client$clientno:if1">
       <ip address="$pr4.$clientlan.$clientip" netmask="255.255.255.0" type="ipv4"/>
     </interface>
@@ -239,9 +247,13 @@ EOF
       <disk_image name="$image"/>
     </sliver_type>
     <location xmlns="http://jfed.iminds.be/rspec/ext/jfed/1" x="$rx" y="$py"/>
+EOF
+	$rspec .= <<"EOF" if $ctrl_if;
     <interface client_id="router$routerno:if0">
       <ip address="10.0.$clientlan.1" netmask="255.255.255.0" type="ipv4"/>
     </interface>
+EOF
+	$rspec .= <<"EOF";
     <interface client_id="router$routerno:if1">
       <ip address="$pr4.$clientlan.1" netmask="255.255.255.0" type="ipv4"/>
     </interface>
@@ -298,9 +310,13 @@ EOF
       <disk_image name="$image"/>
     </sliver_type>
     <location xmlns="http://jfed.iminds.be/rspec/ext/jfed/1" x="$rx" y="$ry"/>
+EOF
+		$rspec .= <<"EOF" if $ctrl_if;
     <interface client_id="router$routerno:if0">
       <ip address="10.0.$l1.1" netmask="255.255.255.0" type="ipv4"/>
     </interface>
+EOF
+		$rspec .= <<"EOF";
     <interface client_id="router$routerno:if1">
       <ip address="$pr4.$l1.1" netmask="255.255.255.0" type="ipv4"/>
     </interface>
@@ -343,9 +359,13 @@ EOF
     </sliver_type>
     <jfed:ansible_group name="server"/>
     <location xmlns="http://jfed.iminds.be/rspec/ext/jfed/1" x="$posx" y="$posy"/>
+EOF
+	$rspec .= <<"EOF" if $ctrl_if;
     <interface client_id="server$serverno:if0">
       <ip address="10.0.$serverlan.$serverip" netmask="255.255.255.0" type="ipv4"/>
     </interface>
+EOF
+	$rspec .= <<"EOF";
     <interface client_id="server$serverno:if1">
       <ip address="$pr4.$serverlan.$serverip" netmask="255.255.255.0" type="ipv4"/>
     </interface>
@@ -367,9 +387,13 @@ EOF
     </sliver_type>
     <jfed:ansible_group name="director"/>
     <location xmlns="http://jfed.iminds.be/rspec/ext/jfed/1" x="$posx" y="$posy"/>
+EOF
+    $rspec .= <<"EOF" if $ctrl_if;
     <interface client_id="director0:if0">
       <ip address="10.0.$serverlan.$serverip" netmask="255.255.255.0" type="ipv4"/>
     </interface>
+EOF
+    $rspec .= <<"EOF";
     <interface client_id="director0:if1">
       <ip address="$pr4.$serverlan.$serverip" netmask="255.255.255.0" type="ipv4"/>
     </interface>
