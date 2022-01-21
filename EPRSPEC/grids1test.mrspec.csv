@@ -1,0 +1,7 @@
+node_id, authentication_type, hostname, port, username
+node1, ssh-keys, access.grid5000.fr, 22, librecas,
+node1, ssh-keys, grisou-14.nancy.grid5000.fr, 22, root,
+node0, ssh-keys, access.grid5000.fr, 22, librecas,
+node0, ssh-keys, grisou-15.nancy.grid5000.fr, 22, root,
+node2, ssh-keys, access.grid5000.fr, 22, librecas,
+node2, ssh-keys, grisou-10.nancy.grid5000.fr, 22, root,
