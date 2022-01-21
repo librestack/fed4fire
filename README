@@ -129,7 +129,7 @@ for example, to compare the running time of all "2GB" experiments sorting
 by maximum update time (assuming the tarballs are in ~/results and the
 file names are as produced by the experiment):
 
-./bin/average -m run-time /tmp/cache.sqlite ~/results/*-32-*.tar.gz
+./bin/average -m run-time /tmp/cache.sqlite ~/results/*-2048-*.tar.gz
 
 ==============================================
 

@@ -2,7 +2,11 @@
 
 use strict;
 use DBI;
+use FindBin '$Bin';
 use File::Temp 'tempdir';
+use File::Path 'remove_tree';
+use lib "$Bin/../perl";
+use Lwmon;
 
 my $usage = "Usage: $0 [-amnr] DATA_NAME CACHE_DB REPORT_TARBALL [...]\n";
 my $raw_data = 0;
@@ -26,20 +30,27 @@ my $dataname = shift @ARGV;
 my $cache_db = shift @ARGV;
 
 my %dataname = (
-    'run-time' => [
-	qr/^client\d+\./,
-	\&init_runtime,
-	\&get_runtime,
-	\&finish_runtime,
-	3,
-	1,
-    ],
+    'run-time' => {
+	file_regex  => qr/^client\d+\./,
+	init_code   => \&init_runtime,
+	finish_code => \&finish_runtime,
+	decimals    => 3,
+	is_time     => 1,
+	types       => {
+	    65534   => \&get_runtime,
+	},
+    },
 );
 
 exists $dataname{$dataname}
     or die "Unknown DATA_NAME, known are " . join(' ', sort keys %dataname) . "\n";
-my ($file_regex, $init_code, $get_code, $finish_code, $decimals, $is_time) =
-    @{$dataname{$dataname}};
+my $file_regex = $dataname{$dataname}{file_regex};
+my $init_code = $dataname{$dataname}{init_code};
+my $finish_code = $dataname{$dataname}{finish_code};
+my $decimals = $dataname{$dataname}{decimals};
+my $is_time = $dataname{$dataname}{is_time};
+my $types = $dataname{$dataname}{types};
+
 my $fmt_std = '%' . ($decimals ? (($decimals + 5) . ".${decimals}f") : "${decimals}d");
 my $fmt_whole = '%' . ($decimals ? (($decimals + 9) . ".${decimals}f") : "${decimals}d");
 my $fmt_seconds = '%0' . ($decimals ? (($decimals + 3) . ".${decimals}f") : "2d");
@@ -49,8 +60,21 @@ my $dbh = DBI->connect("dbi:SQLite:dbname=$cache_db", '', '',
 
 run_sql(<<EOF);
 CREATE TABLE IF NOT EXISTS tarballs (
+    id INTEGER NOT NULL PRIMARY KEY,
     filename VARCHAR(256),
-    mtime INTEGER,
+    filesize INTEGER,
+    mtime INTEGER
+);
+EOF
+
+run_sql(<<EOF);
+CREATE INDEX IF NOT EXISTS tarballs_name
+ON tarballs(filename);
+EOF
+
+run_sql(<<EOF);
+CREATE TABLE IF NOT EXISTS data (
+    tar_id INTEGER NOT NULL,
     dataname VARCHAR(256),
     count INTEGER,
     min FLOAT,
@@ -61,59 +85,97 @@ CREATE TABLE IF NOT EXISTS tarballs (
 EOF
 
 run_sql(<<EOF);
-CREATE INDEX IF NOT EXISTS tarballs_name
-ON tarballs(filename, dataname);
+CREATE INDEX IF NOT EXISTS data_id
+ON data(tar_id, dataname)
 EOF
 
-my $get_cached = $dbh->prepare(<<EOF);
-SELECT mtime, count, min, max, total, square
+run_sql(<<EOF);
+CREATE INDEX IF NOT EXISTS data_name
+ON data(dataname, tar_id)
+EOF
+
+my $find_tarball = $dbh->prepare(<<EOF);
+SELECT id, filesize, mtime
 FROM tarballs
-WHERE filename = ?
-  AND dataname = ?;
+WHERE filename = ?;
 EOF
 
-my $delete_cached = $dbh->prepare(<<EOF);
-DELETE
-FROM tarballs
-WHERE filename = ?
-  AND dataname = ?;
+my $delete_tarball = $dbh->prepare(<<EOF);
+DELETE FROM tarballs WHERE id = ?;
 EOF
 
-my $add_cached = $dbh->prepare(<<EOF);
+my $delete_data = $dbh->prepare(<<EOF);
+DELETE FROM data WHERE tar_id = ?;
+EOF
+
+my $max_tar_id = $dbh->prepare(<<EOF);
+SELECT max(id) FROM tarballs;
+EOF
+
+my $add_tarball = $dbh->prepare(<<EOF);
 INSERT INTO tarballs
-(filename, dataname, mtime, count, min, max, total, square)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+(id, filename, filesize, mtime)
+VALUES (?, ?, ?, ?);
 EOF
+
+my $get_data = $dbh->prepare(<<EOF);
+SELECT count, min, max, total, square
+FROM data
+WHERE tar_id = ?
+  AND dataname = ?;
+EOF
+
+my $add_data = $dbh->prepare(<<EOF);
+INSERT INTO data
+(tar_id, dataname, count, min, max, total, square)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+EOF
+
+my $dir;
+END { defined $dir and remove_tree($dir); undef $dir; }
 
 my %counts = ();
 for my $tb (@ARGV) {
     stat $tb or die "$tb: $!\n";
+    my $tfilesize = (stat _)[7];
     my $tmtime = (stat _)[9];
     $tb =~ /:\d+-(multicast|scp|tcp|udp)-(immediate|random|random2)-(\d+)-\d+\.tar\.gz$/
 	or die "Unrecognised tarball name: $tb\n";
     my $title = sprintf "%-9s %-9s %4d", $1, $2, $3;
-    (my $idxtb = $tb) =~ s!^.*/!!;
-    # check if this file is already cached
-    my ($cmtime, $count, $min, $max, $total, $square) =
-	$dbh->selectrow_array($get_cached, {}, $idxtb, $dataname);
-    if (! defined $cmtime || $cmtime != $tmtime) {
-	# not cached, or out of date, so read this tarball
-	defined $cmtime and $delete_cached->execute($idxtb, $dataname);
-	my $dir = tempdir(CLEANUP => 1) or die "tmpdir: $!\n";
+    (my $tfilename = $tb) =~ s!^.*/!!;
+    # check if we already have this tarball and it is up to date
+    my ($id, $cfilesize, $cmtime) = $dbh->selectrow_array($find_tarball, {}, $tfilename);
+    if (! defined $cmtime || $cmtime != $tmtime || $cfilesize != $tfilesize) {
+	if (defined $cmtime) {
+	    $delete_tarball->execute($tfilename, $id);
+	    $delete_data->execute($tfilename, $id);
+	} else {
+	    ($id) = 1 + ($dbh->selectrow_array($max_tar_id, {}) || 0);
+	}
+	$add_tarball->execute($id, $tfilename, $tfilesize, $tmtime);
+    }
+    # check if the data is already cached
+    my ($count, $min, $max, $total, $square) =
+	$dbh->selectrow_array($get_data, {}, $id, $dataname);
+    if (! defined $count) {
+	# not cached
+	$dir = tempdir() or die "tmpdir: $!\n";
 	my $ptb = $tb =~ m!^/! ? $tb : "./$tb";
 	run_cmd("tar $tb", 'tar', 'xf', $ptb, '-C', $dir);
 	opendir(DIR, $dir) or die "$dir: $!\n";
 	($total, $square, $count, $min, $max) = (0, 0, 0);
 	while (defined (my $ent = readdir DIR)) {
 	    $ent =~ $file_regex or next;
-	    run_cmd("lwmon ($tb)/$ent", 'lwmon', '-traw', '-R', "$dir/$ent", "-P$dir/lwmon");
-	    open(LWMON, '<', "$dir/lwmon") or die "($tb,$ent)/lwmon: $!\n";
+	    my $lwmon = Lwmon->new("$dir/$ent");
 	    my %data;
 	    $init_code->(\%data);
-	    while (<LWMON>) {
-		$get_code->($tb, $ent, \%data, $_);
+	    while (defined (my $packet = $lwmon->nextrecord)) {
+		for my $item (@{$packet->{data}}) {
+		    exists $types->{$item->{type}} or next;
+		    my $code = $types->{$item->{type}};
+		    $code->($tb, $ent, \%data, $packet, $item);
+		}
 	    }
-	    close LWMON;
 	    my ($fcount, $ftotal, $fsquare, $fmin, $fmax) =
 		$finish_code->($tb, $ent, \%data);
 	    $count += $fcount;
@@ -124,8 +186,9 @@ for my $tb (@ARGV) {
 	}
 	closedir DIR;
 	$count > 0 or die "$tb: no data\n";
-	$add_cached->execute($idxtb, $dataname, $tmtime,
-			     $count, $min, $max, $total, $square);
+	$add_data->execute($id, $dataname, $count, $min, $max, $total, $square);
+	remove_tree($dir);
+	undef $dir;
     }
     if (exists $counts{$title}) {
 	$counts{$title}[0] += $count;
@@ -210,16 +273,16 @@ sub init_runtime {
 }
 
 sub get_runtime {
-    my ($tb, $ent, $data, $line) = @_;
-    $line =~ /\bclient_\w+ \(log entry\) (start|end)/ or return;
-    my $what = $1;
-    /^(\d+(?:\.\d+)?)\s/ or return;
-    my $time = $1;
-    if ($what eq 'start') {
+    my ($tb, $ent, $data, $packet, $item) = @_;
+    exists $item->{name} or return;
+    $item->{name} =~ /^client_/ or return;
+    exists $item->{parm} or return;
+    my $time = $packet->{timestamp};
+    if ($item->{parm} eq 'start') {
 	$data->{place} and die "$tb ($ent): misplaced start\n";
 	$data->{place} = 1;
 	$data->{time} -= $time;
-    } else {
+    } elsif ($item->{parm} eq 'end') {
 	$data->{place} or die "$tb ($ent): misplaced end\n";
 	$data->{place} = 0;
 	$data->{time} += $time;

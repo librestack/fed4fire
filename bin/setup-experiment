@@ -135,8 +135,8 @@ update_file('sizes');
 
 my @ssh = qw(ssh -oCheckHostIP=no -oStrictHostKeyChecking=no);
 
-my $try_key = 'id_rsa';
-if (-f $try_key) {
+for my $try_key ('id_rsa', "$Bin/../objects/id_rsa") {
+    -f $try_key or next;
     # need to silence ssh as git will create the file with mode 644
     chmod 0600, $try_key;
     push @ssh, ('-i', $try_key);

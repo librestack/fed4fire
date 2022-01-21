@@ -1,6 +1,7 @@
 #!/usr/bin/perl -w
 
 use strict;
+use FindBin '$Bin';
 
 my $usage = "Usage: $0 EXP_NAME [DIR] NODE RSYNC_OPTIONS REMOTE_SOURCE [REMOTE_SOURCE]... LOCAL_DEST\n";
 @ARGV >= 5 or die $usage;
@@ -36,8 +37,8 @@ close HF;
 defined $host or die "Node $NODE not known\n";
 
 my @key;
-my $try_key = 'objects/id_rsa';
-if (-f $try_key) {
+for my $try_key ('objects/id_rsa', "$Bin/../objects/id_rsa") {
+    -f $try_key or next;
     # need to silence ssh as git will create the file with mode 644
     chmod 0600, $try_key;
     @key = ('-i', $try_key);
