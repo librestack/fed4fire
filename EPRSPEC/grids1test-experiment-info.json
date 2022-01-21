@@ -1,0 +1,82 @@
+{
+  "ssh_users" : [ {
+    "urn" : "urn:publicid:IDN+ilabt.imec.be+user+libreclc",
+    "ssh_keys" : [ "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDXxI1zPWTmugdpmzB0OO4brbhZX5a5G7KQPlWOaQy8yDaKdX2FquvaTV5sr6uKjhKzqPKU9zGg8iwKHq7yFnQMMp963QB2ERdLcAiBYnSqeNGE9MiGCny9NeWU98KW6fm0QNJlGOJaDN5MZKRCR3Du9/fCi8Fh+qUnnaHY5N5O8nPkslr8Vh2uq33dp1UkU6g0TGItqvZ+WAzCGrfyTCSGrB3YnV/8t/cvN4QAebjzO5gIL5YhV7GkbhWiCdWn7LTaBTvYRO1tHZ0DC/a5Dl4GN4MWUi71kFyDsd2bX+s17Zp3Pf5uhdqwvjFqpJpbE0ove0l0sRSmw7TCAAUPS/buziDPtX7ldJwQYnEB/mzpDXDjii/U17EUQ6VrdNCkE6Lh3+ayWoNDPu4PiuBO7MiGYWFaWkS9rsbX/3Wc4xjLq4ogv3BCQc25CFOU8a04YlSP3XxMQWubxvep9TD3YIag08h0ejx3rJbe1ILqZSoipfQUnPq2DAF3m4h68B/+M4k= clc@st" ],
+    "name" : "libreclc"
+  }, {
+    "urn" : "urn:publicid:IDN+ilabt.imec.be+user+librecas",
+    "ssh_keys" : [ "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQChE7whb9X4/fT/Ybm0sFqn3YbQw/jcydLwpWKs948LRbU/Nq3Qv6Sudfzg0M3pz29C/Rod1NLEmPsFXE3qS6ObYL/0dpwRg9dLPRkvLMUKU/1Sy+x1IVPOoZ5/E9Np159idRRKrP0YZF3a31zE+AJSShRtzzOfSopc0WEPHvo5Zyr7ebr/wuIAzynlFD/aamUN823iEBFeoGencyCoQDcnB8xcUah5y4nalmwx614XD3/56Kgi4IFGxBFrE2WZvfV+It0eU/fJS4Nlpnp/9lggp8ceb+R9ODQDVba9fUUymC6f8xC/Z8UZRE0tKmj8xAUy5qNP+C+CrUZxq3xKLhDT" ],
+    "name" : "librecas"
+  } ],
+  "nodes" : {
+    "node2" : {
+      "connected_nodes" : [ ],
+      "ansible_groups" : [ ],
+      "internal_ips" : [ ],
+      "ssh_login" : [ {
+        "all" : "librecas@access.grid5000.fr:22",
+        "hostname" : "access.grid5000.fr",
+        "port" : 22,
+        "hostandport" : "access.grid5000.fr:22",
+        "username" : "librecas"
+      }, {
+        "all" : "root@grisou-10.nancy.grid5000.fr:22",
+        "hostname" : "grisou-10.nancy.grid5000.fr",
+        "port" : 22,
+        "hostandport" : "grisou-10.nancy.grid5000.fr:22",
+        "username" : "root"
+      } ],
+      "client_id" : "node2"
+    },
+    "node0" : {
+      "connected_nodes" : [ ],
+      "ansible_groups" : [ ],
+      "internal_ips" : [ ],
+      "ssh_login" : [ {
+        "all" : "librecas@access.grid5000.fr:22",
+        "hostname" : "access.grid5000.fr",
+        "port" : 22,
+        "hostandport" : "access.grid5000.fr:22",
+        "username" : "librecas"
+      }, {
+        "all" : "root@grisou-15.nancy.grid5000.fr:22",
+        "hostname" : "grisou-15.nancy.grid5000.fr",
+        "port" : 22,
+        "hostandport" : "grisou-15.nancy.grid5000.fr:22",
+        "username" : "root"
+      } ],
+      "client_id" : "node0"
+    },
+    "node1" : {
+      "connected_nodes" : [ ],
+      "ansible_groups" : [ ],
+      "internal_ips" : [ ],
+      "ssh_login" : [ {
+        "all" : "librecas@access.grid5000.fr:22",
+        "hostname" : "access.grid5000.fr",
+        "port" : 22,
+        "hostandport" : "access.grid5000.fr:22",
+        "username" : "librecas"
+      }, {
+        "all" : "root@grisou-14.nancy.grid5000.fr:22",
+        "hostname" : "grisou-14.nancy.grid5000.fr",
+        "port" : 22,
+        "hostandport" : "grisou-14.nancy.grid5000.fr:22",
+        "username" : "root"
+      } ],
+      "client_id" : "node1"
+    }
+  },
+  "slice" : {
+    "urn" : "urn:publicid:IDN+ilabt.imec.be:librecast+slice+grids1test",
+    "name" : "grids1test"
+  },
+  "project" : {
+    "urn" : "urn:publicid:IDN+ilabt.imec.be:librecast+project+librecast",
+    "name" : "librecast"
+  },
+  "user" : {
+    "urn" : "urn:publicid:IDN+ilabt.imec.be+user+librecas",
+    "name" : "librecas"
+  }
+}
