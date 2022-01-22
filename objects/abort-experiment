@@ -21,7 +21,7 @@ do
 	$ssh "$type$number" sudo killall "start-$experiment-$type" "start-$experiment" "start-$type" 2>/dev/null
     done
     [ "$type" = client ] && $ssh "$type$number" sudo killall iotup iotupc scp 2>/dev/null
-    [ "$type" = router ] && $ssh "$type$number" sudo killall pim6sd sleep 2>/dev/null
+    [ "$type" = router ] && $ssh "$type$number" sudo killall lcroute sleep 2>/dev/null
     [ "$type" = server ] && $ssh "$type$number" sudo killall iotup iotupd sleep 2>/dev/null
     $ssh "$type$number" sudo killall lwmon rsync start 2>/dev/null
 done < /tmp/experiment/setup-data

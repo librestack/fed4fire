@@ -12,9 +12,9 @@ fi
 
 sudo cp -a /tmp/experiment/lib* /usr/local/lib/
 sudo cp -a /tmp/experiment/iotup* /usr/local/bin/
+sudo cp -a /tmp/experiment/lcroute /usr/local/bin/
 sudo cp -a /tmp/experiment/lwmon /usr/local/bin/
 sudo cp -a /tmp/experiment/lwmon-log /usr/local/bin/
-sudo cp -a /tmp/experiment/pim6sd /usr/local/bin/
 sudo cp -a /tmp/experiment/mcast???? /usr/local/bin/
 sudo cp -a /tmp/experiment/librecast* /usr/local/include/
 sudo cp -a /tmp/experiment/lwmon.h /usr/local/include/
