@@ -49,7 +49,7 @@ my %dataname = (
 	is_time     => 0,
 	mode        => 'summary',
 	types       => {
-	    6       => { if1 => sub { get_value(1, 1e-6, @_) }, },
+	    6       => { if1 => sub { get_value(1, 1e-3, @_) }, },
 	},
     },
 );
@@ -231,8 +231,8 @@ for my $tb (@ARGV) {
 	    # there are, only if there are any or not; so we need client
 	    # logs to know when they start/end (this is less precise
 	    # than server logs)
-	    opendir(DIR, $dir) or die "$dir: $!\n";
 	    my %change;
+	    opendir(DIR, $dir) or die "$dir: $!\n";
 	    while (defined (my $ent = readdir DIR)) {
 		$ent =~ /^client\d+\./ or next;
 		my $lwmon = Lwmon->new("$dir/$ent");
@@ -267,42 +267,23 @@ for my $tb (@ARGV) {
 	    closedir DIR;
 	    @clients = map { [$_ => $change{$_}] } sort { $a <=> $b } keys %change;
 	}
-	opendir(DIR, $dir) or die "$dir: $!\n";
-	my $n_clients = 0;
 	my %totals;
 	my ($total, $square, $count, $min, $max) = (0, 0, 0);
 	my $filter = $is_multicast ? $types : $unicast_filter;
+	opendir(DIR, $dir) or die "$dir: $!\n";
 	while (defined (my $ent = readdir DIR)) {
 	    $ent =~ $file_regex or next;
 	    my $lwmon = Lwmon->new("$dir/$ent");
 	    my %data;
 	    $init_code and $init_code->(\%data);
-	    my ($n_requests, $n_done) = (0, 0);
+	    my $lastr;
+	    my $n_clients = 0;
 	    while (defined (my $packet = $lwmon->nextrecord($filter))) {
-		if ($count_clients && $is_multicast && @clients) {
-		    # check if we have a change in $n_clients
-		    my $ts = $packet->{timestamp};
-		    if ($ts >= $clients[0][0]) {
-			$n_clients += $clients[0][1];
-			shift @clients;
-		    }
-		}
+		# first process any data logs - they refer to some interval ending
+		# at the current message, so we want to process them now before
+		# figuring out any change in number of active clients
 		for my $item (@{$packet->{data}}) {
 		    my $type = $item->{type};
-		    if ($count_clients && ! $is_multicast && $type == 65534) {
-			# type is "log", see if this is a request/done log
-			if (exists $item->{parm}) {
-			    if ($item->{parm} eq 'request') {
-				$n_requests++;
-				$n_clients++;
-			    } elsif ($item->{parm} eq 'done') {
-				$n_done++;
-				$n_done > $n_requests
-				    and die "$tb ($ent): more 'done' than 'request'\n";
-				$n_clients--;
-			    }
-			}
-		    }
 		    exists $types->{$type} or next;
 		    my $code = $types->{$type};
 		    if (ref($code) eq 'HASH') {
@@ -311,9 +292,42 @@ for my $tb (@ARGV) {
 		    }
 		    $code->($tb, $ent, \%data, $packet, $item, $n_clients);
 		}
+		# and if we are counting clients, apply any changes
+		$count_clients or next;
+		if ($is_multicast) {
+		    # check if we have a change in $n_clients
+		    @clients or next;
+		    my $ts = $packet->{timestamp};
+		    if ($ts >= $clients[0][0]) {
+			$n_clients += $clients[0][1];
+			shift @clients;
+		    }
+		} else {
+		    # process all "request" and "done" logs
+		    for my $item (@{$packet->{data}}) {
+			my $type = $item->{type};
+			$type == 65534 or next;
+			# type is "log", see if this is a request/done log
+			exists $item->{parm} or next;
+			if ($item->{parm} eq 'request') {
+			    $n_clients++;
+			    $lastr = $packet->{timestamp};
+			} elsif ($item->{parm} eq 'done') {
+			    $n_clients > 0
+				or die "$tb ($ent): more 'done' than 'request'\n";
+			    $n_clients--;
+			} elsif ($item->{parm} eq 'end' && $n_clients > 0) {
+			    if (defined $lastr && $lastr == $packet->{timestamp}) {
+				# there's a fake request logged just before "end"
+				# which is the "end of file" on the socket
+				$n_clients--;
+			    }
+			}
+		    }
+		}
 	    }
-#	    $count_clients && $n_done != $n_requests
-#		and die "$tb ($ent): mismatch between 'done' and 'request'\n";
+	    $count_clients && $n_clients != 0
+		and die "$tb ($ent): mismatch between done and request: n_clients=$n_clients\n";
 	    for my $tp ($finish_code->($tb, $ent, \%data)) {
 		my ($count, $total, $square, $min, $max, $nc) = @$tp;
 		if (exists $totals{$nc}) {
@@ -462,7 +476,11 @@ sub get_value {
     my ($idx, $scale, $tb, $ent, $data, $packet, $item, $n_clients) = @_;
     my $v = $item->{values}[$idx];
     defined $v or return;
-    $v *= $scale;
+    # scale value as required and also divide by the elapsed time since last measure
+    # so we get a normalised "per second" result
+    my $i = $item->{values}[0];
+    $i < 1 and return;
+    $v *= $scale / $i;
     my $s = $v * $v;
     if (exists $data->{$n_clients}) {
 	$data->{$n_clients}[0]++;

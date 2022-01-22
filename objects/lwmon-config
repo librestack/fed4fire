@@ -20,5 +20,5 @@ cpu cpu 1
 program experiment 5 /tmp/experiment/start-[START] [INTERFACE] [SERVER]
 
 receive /tmp/lwmon.socket
-cmd_measure 100 lavg memswap cpu
+cmd_measure 1 lavg memswap cpu
 
