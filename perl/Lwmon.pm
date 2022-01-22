@@ -1,5 +1,6 @@
 package Lwmon;
 
+use strict;
 use Carp;
 
 use constant header_length => 10;
@@ -58,8 +59,8 @@ sub _name {
 }
 
 sub nextrecord {
-    @_ == 1 or croak "Usage: \$lwmon->nextrecord";
-    my ($self) = @_;
+    @_ == 1 || @_ == 2 or croak "Usage: \$lwmon->nextrecord [(DATA_TYPES)]";
+    my ($self, $types) = @_;
     my ($filehandle, $filename) = @$self;
     my $packet;
     my $nr = read $filehandle, $packet, header_length;
@@ -92,22 +93,24 @@ sub nextrecord {
 	my ($data_length, $type, $namelen, $parmlen, $n_values) =
 	    unpack("\@$pos nnCCC", $packet);
 	$pos + $data_length > $length and die "$filename: data after end of packet\n";
-	my %item = (
-	    type => $type,
-	);
-	my @values;
-	if ($type != 65535) {
-	    my $dpos = $pos + 7;
-	    my $end = $pos + $data_length;
-	    $item{name} = _name($filename, $packet, \$dpos, $end, $namelen);
-	    $item{parm} = _name($filename, $packet, \$dpos, $end, $parmlen);
-	    for (my $v = 0; $v < $n_values; $v++) {
-		push @values, _int($packet, \$dpos);
+	if (! $types || exists $types->{$type}) {
+	    my %item = (
+		type => $type,
+	    );
+	    my @values;
+	    if ($type != 65535) {
+		my $dpos = $pos + 7;
+		my $end = $pos + $data_length;
+		$item{name} = _name($filename, $packet, \$dpos, $end, $namelen);
+		$item{parm} = _name($filename, $packet, \$dpos, $end, $parmlen);
+		for (my $v = 0; $v < $n_values; $v++) {
+		    push @values, _int($packet, \$dpos);
+		}
+		$dpos > $end and die "$filename: Invalid data in packet\n";
 	    }
-	    $dpos > $end and die "$filename: Invalid data in packet\n";
+	    $item{values} = \@values;
+	    push @data, \%item;
 	}
-	$item{values} = \@values;
-	push @data, \%item;
 	$pos += $data_length;
     }
     $packet{data} = \@data;

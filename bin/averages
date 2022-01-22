@@ -36,8 +36,20 @@ my %dataname = (
 	finish_code => \&finish_runtime,
 	decimals    => 3,
 	is_time     => 1,
+	mode        => 'data',
 	types       => {
 	    65534   => \&get_runtime,
+	},
+    },
+    'server-tx' => {
+	file_regex  => qr/^server\d+\./,
+	init_code   => undef,
+	finish_code => \&finish_values,
+	decimals    => 1,
+	is_time     => 0,
+	mode        => 'summary',
+	types       => {
+	    6       => { if1 => sub { get_value(1, 1e-6, @_) }, },
 	},
     },
 );
@@ -49,6 +61,7 @@ my $init_code = $dataname{$dataname}{init_code};
 my $finish_code = $dataname{$dataname}{finish_code};
 my $decimals = $dataname{$dataname}{decimals};
 my $is_time = $dataname{$dataname}{is_time};
+my $mode = $dataname{$dataname}{mode};
 my $types = $dataname{$dataname}{types};
 
 my $fmt_std = '%' . ($decimals ? (($decimals + 5) . ".${decimals}f") : "${decimals}d");
@@ -56,7 +69,65 @@ my $fmt_whole = '%' . ($decimals ? (($decimals + 9) . ".${decimals}f") : "${deci
 my $fmt_seconds = '%0' . ($decimals ? (($decimals + 3) . ".${decimals}f") : "2d");
 
 my $dbh = DBI->connect("dbi:SQLite:dbname=$cache_db", '', '',
-		       { RaiseError => 1, AutoCommit => 1 });
+		       { RaiseError => 1, PrintError => 0, AutoCommit => 1 });
+
+my %modes = (
+    'data' => {
+	create_tables => [
+	    'CREATE TABLE IF NOT EXISTS data (
+		tar_id INTEGER NOT NULL,
+		dataname VARCHAR(256),
+		count INTEGER,
+		min FLOAT,
+		max FLOAT,
+		total FLOAT,
+		square FLOAT
+	    );',
+	    'CREATE INDEX IF NOT EXISTS data_id ON data(tar_id, dataname);',
+	    'CREATE INDEX IF NOT EXISTS data_name ON data(dataname, tar_id);',
+	],
+	count_clients => 0,
+	delete_data   => 'DELETE FROM data WHERE tar_id = ?;',
+	get_data =>
+	    'SELECT count, total, square, min, max
+	     FROM data
+	     WHERE tar_id = ?
+	       AND dataname = ?;',
+	add_data =>
+	    'INSERT INTO data
+	     (tar_id, dataname, count, total, square, min, max)
+	     VALUES (?, ?, ?, ?, ?, ?, ?);',
+    },
+    'summary' => {
+	create_tables => [
+	    'CREATE TABLE IF NOT EXISTS summary (
+		tar_id INTEGER NOT NULL,
+		dataname VARCHAR(256),
+		n_clients INTEGER,
+		count INTEGER,
+		min FLOAT,
+		max FLOAT,
+		total FLOAT,
+		square FLOAT
+	    );',
+	    'CREATE INDEX IF NOT EXISTS sumary_id ON summary(tar_id, dataname, n_clients);',
+	    'CREATE INDEX IF NOT EXISTS sumary_name ON summary(dataname, n_clients, tar_id);',
+	],
+	count_clients => 1,
+	delete_data   => 'DELETE FROM summary WHERE tar_id = ?;',
+	get_data =>
+	    'SELECT count, total, square, min, max, n_clients
+	     FROM summary
+	     WHERE tar_id = ?
+	       AND dataname = ?;',
+	add_data =>
+	    'INSERT INTO summary
+	     (tar_id, dataname, count, total, square, min, max, n_clients)
+	     VALUES (?, ?, ?, ?, ?, ?, ?, ?);',
+    },
+);
+
+exists $modes{$mode} or die "Internal error, mode=$mode not defined\n";
 
 run_sql(<<EOF);
 CREATE TABLE IF NOT EXISTS tarballs (
@@ -72,28 +143,6 @@ CREATE INDEX IF NOT EXISTS tarballs_name
 ON tarballs(filename);
 EOF
 
-run_sql(<<EOF);
-CREATE TABLE IF NOT EXISTS data (
-    tar_id INTEGER NOT NULL,
-    dataname VARCHAR(256),
-    count INTEGER,
-    min FLOAT,
-    max FLOAT,
-    total FLOAT,
-    square FLOAT
-);
-EOF
-
-run_sql(<<EOF);
-CREATE INDEX IF NOT EXISTS data_id
-ON data(tar_id, dataname)
-EOF
-
-run_sql(<<EOF);
-CREATE INDEX IF NOT EXISTS data_name
-ON data(dataname, tar_id)
-EOF
-
 my $find_tarball = $dbh->prepare(<<EOF);
 SELECT id, filesize, mtime
 FROM tarballs
@@ -102,10 +151,6 @@ EOF
 
 my $delete_tarball = $dbh->prepare(<<EOF);
 DELETE FROM tarballs WHERE id = ?;
-EOF
-
-my $delete_data = $dbh->prepare(<<EOF);
-DELETE FROM data WHERE tar_id = ?;
 EOF
 
 my $max_tar_id = $dbh->prepare(<<EOF);
@@ -118,18 +163,32 @@ INSERT INTO tarballs
 VALUES (?, ?, ?, ?);
 EOF
 
-my $get_data = $dbh->prepare(<<EOF);
-SELECT count, min, max, total, square
-FROM data
-WHERE tar_id = ?
-  AND dataname = ?;
-EOF
+for my $create (@{$modes{$mode}{create_tables}}) {
+    run_sql($create);
+}
 
-my $add_data = $dbh->prepare(<<EOF);
-INSERT INTO data
-(tar_id, dataname, count, min, max, total, square)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-EOF
+my $get_data = $dbh->prepare($modes{$mode}{get_data});
+my $add_data = $dbh->prepare($modes{$mode}{add_data});
+my $count_clients = $modes{$mode}{count_clients};
+
+# prepare to delete data for any table whish already exists; if a table
+# has not yet been create, obviously no need
+my @delete_data;
+for my $mm (keys %modes) {
+    eval {
+	my $dd = $dbh->prepare($modes{$mm}{delete_data});
+	push @delete_data, $dd;
+    };
+    if ($@) {
+	$@ =~ /no such table/ or die $@;
+    }
+}
+
+# type filter for unicast includes logs (to get request/done), for
+# multicast it does not need to
+my $unicast_filter = $types;
+$count_clients && ! exists $unicast_filter->{65534}
+    and $unicast_filter = { %$unicast_filter, 65534 => undef };
 
 my $dir;
 END { defined $dir and remove_tree($dir); undef $dir; }
@@ -142,85 +201,186 @@ for my $tb (@ARGV) {
     $tb =~ /:\d+-(multicast|scp|tcp|udp)-(immediate|random|random2)-(\d+)-\d+\.tar\.gz$/
 	or die "Unrecognised tarball name: $tb\n";
     my $title = sprintf "%-9s %-9s %4d", $1, $2, $3;
+    my $is_multicast = $1 eq 'multicast';
     (my $tfilename = $tb) =~ s!^.*/!!;
     # check if we already have this tarball and it is up to date
     my ($id, $cfilesize, $cmtime) = $dbh->selectrow_array($find_tarball, {}, $tfilename);
     if (! defined $cmtime || $cmtime != $tmtime || $cfilesize != $tfilesize) {
 	if (defined $cmtime) {
 	    $delete_tarball->execute($tfilename, $id);
-	    $delete_data->execute($tfilename, $id);
+	    # we need to delete this tarball from all data tables which exists,
+	    # not just for the one we are using now
+	    for my $dd (@delete_data) {
+		$dd->execute($tfilename, $id);
+	    }
 	} else {
 	    ($id) = 1 + ($dbh->selectrow_array($max_tar_id, {}) || 0);
 	}
 	$add_tarball->execute($id, $tfilename, $tfilesize, $tmtime);
     }
-    # check if the data is already cached
-    my ($count, $min, $max, $total, $square) =
-	$dbh->selectrow_array($get_data, {}, $id, $dataname);
-    if (! defined $count) {
-	# not cached
+    # check if data is already cached
+    my @data = @{ $dbh->selectall_arrayref($get_data, {}, $id, $dataname) };
+    if (! @data) {
+	# not cached, we need to collect it
 	$dir = tempdir() or die "tmpdir: $!\n";
 	my $ptb = $tb =~ m!^/! ? $tb : "./$tb";
 	run_cmd("tar $tb", 'tar', 'xf', $ptb, '-C', $dir);
+	my @clients;
+	if ($count_clients && $is_multicast) {
+	    # for multicast, the server does now know how many clients
+	    # there are, only if there are any or not; so we need client
+	    # logs to know when they start/end (this is less precise
+	    # than server logs)
+	    opendir(DIR, $dir) or die "$dir: $!\n";
+	    my %change;
+	    while (defined (my $ent = readdir DIR)) {
+		$ent =~ /^client\d+\./ or next;
+		my $lwmon = Lwmon->new("$dir/$ent");
+		my ($start, $end);
+		while (defined (my $packet = $lwmon->nextrecord({ 65534 => undef }))) {
+		    for my $item (@{$packet->{data}}) {
+			my $type = $item->{type};
+			$type == 65534 or next;
+			exists $item->{parm} or next;
+			my $diff;
+			if ($item->{parm} eq 'start') {
+			    $start and die "$tb ($ent): multiple start loga\n";
+			    $start = 1;
+			    $diff = 1;
+			} elsif ($item->{parm} eq 'end') {
+			    $start or die "$tb ($ent): end log without start\n";
+			    $end and die "$tb ($ent): multiple end loga\n";
+			    $end = 1;
+			    $diff = -1;
+			} else {
+			    next;
+			}
+			my $ts = $packet->{timestamp};
+			if (exists $change{$ts}) {
+			    $change{$ts} += $diff;
+			} else {
+			    $change{$ts} = $diff;
+			}
+		    }
+		}
+	    }
+	    closedir DIR;
+	    @clients = map { [$_ => $change{$_}] } sort { $a <=> $b } keys %change;
+	}
 	opendir(DIR, $dir) or die "$dir: $!\n";
-	($total, $square, $count, $min, $max) = (0, 0, 0);
+	my $n_clients = 0;
+	my %totals;
+	my ($total, $square, $count, $min, $max) = (0, 0, 0);
+	my $filter = $is_multicast ? $types : $unicast_filter;
 	while (defined (my $ent = readdir DIR)) {
 	    $ent =~ $file_regex or next;
 	    my $lwmon = Lwmon->new("$dir/$ent");
 	    my %data;
-	    $init_code->(\%data);
-	    while (defined (my $packet = $lwmon->nextrecord)) {
+	    $init_code and $init_code->(\%data);
+	    my ($n_requests, $n_done) = (0, 0);
+	    while (defined (my $packet = $lwmon->nextrecord($filter))) {
+		if ($count_clients && $is_multicast && @clients) {
+		    # check if we have a change in $n_clients
+		    my $ts = $packet->{timestamp};
+		    if ($ts >= $clients[0][0]) {
+			$n_clients += $clients[0][1];
+			shift @clients;
+		    }
+		}
 		for my $item (@{$packet->{data}}) {
-		    exists $types->{$item->{type}} or next;
-		    my $code = $types->{$item->{type}};
-		    $code->($tb, $ent, \%data, $packet, $item);
+		    my $type = $item->{type};
+		    if ($count_clients && ! $is_multicast && $type == 65534) {
+			# type is "log", see if this is a request/done log
+			if (exists $item->{parm}) {
+			    if ($item->{parm} eq 'request') {
+				$n_requests++;
+				$n_clients++;
+			    } elsif ($item->{parm} eq 'done') {
+				$n_done++;
+				$n_done > $n_requests
+				    and die "$tb ($ent): more 'done' than 'request'\n";
+				$n_clients--;
+			    }
+			}
+		    }
+		    exists $types->{$type} or next;
+		    my $code = $types->{$type};
+		    if (ref($code) eq 'HASH') {
+			exists $code->{$item->{name}} or next;
+			$code = $code->{$item->{name}};
+		    }
+		    $code->($tb, $ent, \%data, $packet, $item, $n_clients);
 		}
 	    }
-	    my ($fcount, $ftotal, $fsquare, $fmin, $fmax) =
-		$finish_code->($tb, $ent, \%data);
-	    $count += $fcount;
-	    $total += $ftotal;
-	    $square += $fsquare;
-	    defined $min && $min <= $fmin or $min = $fmin;
-	    defined $max && $max >= $fmax or $max = $fmax;
+#	    $count_clients && $n_done != $n_requests
+#		and die "$tb ($ent): mismatch between 'done' and 'request'\n";
+	    for my $tp ($finish_code->($tb, $ent, \%data)) {
+		my ($count, $total, $square, $min, $max, $nc) = @$tp;
+		if (exists $totals{$nc}) {
+		    $totals{$nc}[0] += $count;
+		    $totals{$nc}[1] += $total;
+		    $totals{$nc}[2] += $square;
+		    $totals{$nc}[3] > $min and $totals{$nc}[3] = $min;
+		    $totals{$nc}[4] < $max and $totals{$nc}[4] = $max;
+		} else {
+		    $totals{$nc} = [$count, $total, $square, $min, $max];
+		    $count_clients and push @{$totals{$nc}}, $nc;
+		}
+	    }
 	}
 	closedir DIR;
-	$count > 0 or die "$tb: no data\n";
-	$add_data->execute($id, $dataname, $count, $min, $max, $total, $square);
+	scalar(keys %totals) or die "$tb: no data\n";
+	for my $nc (keys %totals) {
+	    $add_data->execute($id, $dataname, @{$totals{$nc}});
+	    push @data, $totals{$nc};
+	}
 	remove_tree($dir);
 	undef $dir;
     }
-    if (exists $counts{$title}) {
-	$counts{$title}[0] += $count;
-	$counts{$title}[1] += $total;
-	$counts{$title}[2] += $square;
-	$counts{$title}[3] > $min and $counts{$title}[3] = $min;
-	$counts{$title}[4] < $max and $counts{$title}[4] = $max;
-    } else {
-	$counts{$title} = [$count, $total, $square, $min, $max];
+    exists $counts{$title} or $counts{$title} = {};
+    for my $data (@data) {
+	my $n_clients = $data->[5] || 0;
+	if (exists $counts{$title}{$n_clients}) {
+	    $counts{$title}{$n_clients}[0] += $data->[0];
+	    $counts{$title}{$n_clients}[1] += $data->[1];
+	    $counts{$title}{$n_clients}[2] += $data->[2];
+	    $counts{$title}{$n_clients}[3] > $data->[3]
+		and $counts{$title}{$n_clients}[3] = $data->[3];
+	    $counts{$title}{$n_clients}[4] < $data->[4]
+		and $counts{$title}{$n_clients}[4] = $data->[4];
+	} else {
+	    $counts{$title}{$n_clients} = $data;
+	}
     }
 }
 
+my $str_std = '%' . length(sprintf $fmt_std, 0) . 's';
+my $no_std = sprintf $str_std, '-';
 my @results;
 for my $title (keys %counts) {
-    my ($count, $total, $square, $min, $max) = @{$counts{$title}};
-    my $avg = $total / $count;
-    my $std = '-';
-    if ($count > 1) {
-	my $var = ($square - 2 * $avg * $total + $avg * $avg * $count)
-		/ ($count - 1);
-	# avoid square root of "-0"
-	$var < 0 && $var > -1e-10 and $var = 0;
-	$std = sqrt($var);
-	$std = sprintf $fmt_std, $std;
+    for my $n_clients (sort { $a <=> $b } keys %{$counts{$title}}) {
+	my ($count, $total, $square, $min, $max) = @{$counts{$title}{$n_clients}};
+	my $avg = $total / $count;
+	my $std;
+	if ($count > 1) {
+	    my $var = ($square - 2 * $avg * $total + $avg * $avg * $count)
+		    / ($count - 1);
+	    # avoid square root of "-0"
+	    $var < 0 && $var > -1e-10 and $var = 0;
+	    $std = sqrt($var);
+	    $std = sprintf $fmt_std, $std;
+	} else {
+	    $std = $no_std;
+	}
+	my $tt = $title;
+	$count_clients and $tt .= sprintf "%8d", $n_clients;
+	push @results, [$tt, $avg, $count, $min, $max, $std];
     }
-    push @results, [$title, $avg, $count, $min, $max, $std];
 }
 
-my $space_data = length(sprintf $fmt_whole, 0);
-my $space_std = length(sprintf $fmt_std, 0);
-printf "%-9s %-9s %4s %${space_data}s %5s %${space_data}s %${space_data}s %${space_std}s\n",
-       qw(UPDATE SCHEDULE SIZE AVG COUNT MIN MAX STD);
+my $str_data = '%' . length(sprintf $fmt_whole, 0) . 's';
+printf "UPDATE    SCHEDULE  SIZE%s $str_data #DATA $str_data $str_data $str_std\n",
+       ($count_clients ? ' #CLIENT' : ''), qw(AVG MIN MAX STD);
 my @sorted;
 if ($sort_num) {
     @sorted = sort { $a->[$sort_index] <=> $b->[$sort_index] ||
@@ -273,7 +433,7 @@ sub init_runtime {
 }
 
 sub get_runtime {
-    my ($tb, $ent, $data, $packet, $item) = @_;
+    my ($tb, $ent, $data, $packet, $item, $n_clients) = @_;
     exists $item->{name} or return;
     $item->{name} =~ /^client_/ or return;
     exists $item->{parm} or return;
@@ -295,6 +455,29 @@ sub finish_runtime {
     $data->{place} and die "$tb ($ent): missing end\n";
     $data->{any} or die "$tb ($ent): no start/end logs\n";
     my $time = $data->{time};
-    return (1, $time, $time * $time, $time, $time);
+    return ([1, $time, $time * $time, $time, $time, 0]);
+}
+
+sub get_value {
+    my ($idx, $scale, $tb, $ent, $data, $packet, $item, $n_clients) = @_;
+    my $v = $item->{values}[$idx];
+    defined $v or return;
+    $v *= $scale;
+    my $s = $v * $v;
+    if (exists $data->{$n_clients}) {
+	$data->{$n_clients}[0]++;
+	$data->{$n_clients}[1] += $v;
+	$data->{$n_clients}[2] += $s;
+	$data->{$n_clients}[3] > $v and $data->{$n_clients}[3] = $v;
+	$data->{$n_clients}[4] < $v and $data->{$n_clients}[4] = $v;
+    } else {
+	$data->{$n_clients} = [1, $v, $s, $v, $v, $n_clients];
+    }
+}
+
+sub finish_values {
+    my ($tb, $ent, $data) = @_;
+    my @r = map { $data->{$_} } keys %$data;
+    @r;
 }
 
