@@ -226,31 +226,42 @@ for my $tb (@ARGV) {
 	my $ptb = $tb =~ m!^/! ? $tb : "./$tb";
 	run_cmd("tar $tb", 'tar', 'xf', $ptb, '-C', $dir);
 	my @clients;
-	if ($count_clients && $is_multicast) {
+	if ($count_clients) {
 	    # for multicast, the server does now know how many clients
 	    # there are, only if there are any or not; so we need client
 	    # logs to know when they start/end (this is less precise
-	    # than server logs)
+	    # than server logs); for unicast we use the server log
+	    my ($regex, $request, $done);
+	    if ($is_multicast) {
+		$regex = qr/^client\d+\./;
+		$request = 'start';
+		$done = 'end';
+	    } else {
+		$regex = qr/^server\d+\./;
+		$request = 'request';
+		$done = 'done';
+	    }
 	    my %change;
 	    opendir(DIR, $dir) or die "$dir: $!\n";
 	    while (defined (my $ent = readdir DIR)) {
-		$ent =~ /^client\d+\./ or next;
+		$ent =~ $regex or next;
 		my $lwmon = Lwmon->new("$dir/$ent");
-		my ($start, $end);
+		my ($start, $end) = (0, 0);
 		while (defined (my $packet = $lwmon->nextrecord({ 65534 => undef }))) {
 		    for my $item (@{$packet->{data}}) {
 			my $type = $item->{type};
 			$type == 65534 or next;
 			exists $item->{parm} or next;
 			my $diff;
-			if ($item->{parm} eq 'start') {
-			    $start and die "$tb ($ent): multiple start loga\n";
-			    $start = 1;
+			if ($item->{parm} eq $request) {
+			    $start && $is_multicast
+				and die "$tb ($ent): multiple $request loga\n";
+			    $start++;
 			    $diff = 1;
-			} elsif ($item->{parm} eq 'end') {
-			    $start or die "$tb ($ent): end log without start\n";
-			    $end and die "$tb ($ent): multiple end loga\n";
-			    $end = 1;
+			} elsif ($item->{parm} eq $done) {
+			    $start > $end
+				or die "$tb ($ent): $done log without $request\n";
+			    $end++;
 			    $diff = -1;
 			} else {
 			    next;
@@ -294,40 +305,15 @@ for my $tb (@ARGV) {
 		}
 		# and if we are counting clients, apply any changes
 		$count_clients or next;
-		if ($is_multicast) {
-		    # check if we have a change in $n_clients
-		    @clients or next;
-		    my $ts = $packet->{timestamp};
-		    if ($ts >= $clients[0][0]) {
-			$n_clients += $clients[0][1];
-			shift @clients;
-		    }
-		} else {
-		    # process all "request" and "done" logs
-		    for my $item (@{$packet->{data}}) {
-			my $type = $item->{type};
-			$type == 65534 or next;
-			# type is "log", see if this is a request/done log
-			exists $item->{parm} or next;
-			if ($item->{parm} eq 'request') {
-			    $n_clients++;
-			    $lastr = $packet->{timestamp};
-			} elsif ($item->{parm} eq 'done') {
-			    $n_clients > 0
-				or die "$tb ($ent): more 'done' than 'request'\n";
-			    $n_clients--;
-			} elsif ($item->{parm} eq 'end' && $n_clients > 0) {
-			    if (defined $lastr && $lastr == $packet->{timestamp}) {
-				# there's a fake request logged just before "end"
-				# which is the "end of file" on the socket
-				$n_clients--;
-			    }
-			}
-		    }
+		my $ts = $packet->{timestamp};
+		# we allow the change to happen a millisecond later to include
+		# the "immediate" round of measures... and we implement that
+		# by saying $ts > ... rather than $ts >= ...
+		while (@clients && $ts > $clients[0][0]) {
+		    $n_clients += $clients[0][1];
+		    shift @clients;
 		}
 	    }
-	    $count_clients && $n_clients != 0
-		and die "$tb ($ent): mismatch between done and request: n_clients=$n_clients\n";
 	    for my $tp ($finish_code->($tb, $ent, \%data)) {
 		my ($count, $total, $square, $min, $max, $nc) = @$tp;
 		if (exists $totals{$nc}) {
