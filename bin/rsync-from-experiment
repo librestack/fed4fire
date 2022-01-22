@@ -54,6 +54,6 @@ my $ssh = join(' ', @ssh);
 
 @SOURCES = map { "$user\@$host:$_" } @SOURCES;
 my @OPTS = ($OPTS eq '' ? () : split(/\s+/, $OPTS));
-my @rsync = ('rsync', @OPTS, @SOURCES, $DEST);
+my @rsync = ('rsync', "-e$ssh", @OPTS, @SOURCES, $DEST);
 exec @rsync;
 
