@@ -96,7 +96,7 @@ for my $node (@our_nodes) {
     my ($type, $number, $h, $p, $u, $hs) = @{$ansible_nodes{$node}};
     print SD "NODE $type $number $h $p $u\n"
 	or die "$DIR/$EXP/setup-data.tmp: $!\n";
-    printf "NODE %-10s %s@%-${hslen}s", $node, $u, "$hs:$p";
+    my $name = sprintf "%-10s %s@%-${hslen}s", $node, $u, "$hs:$p";
     my $intno = 0;
     for my $item (@{$our_nodes{$node}}) {
 	my ($hwaddr, $ipv4, $ipv6) = @$item;
@@ -113,7 +113,8 @@ for my $node (@our_nodes) {
 		    $ipv4, $type, $number, $ipv6, $type, $number
 		or die "$DIR/$EXP/hosts.tmp: $!\n";
 	}
-	printf "     %-17s %-16s %s\n", $hwaddr, $ipv4, $ipv6;
+	printf "%s  %-17s %-16s %s\n", $name, $hwaddr, $ipv4, $ipv6;
+	$name = ' ' x length($name);
     }
     for my $item (@{$our_routes{$node}}) {
 	my ($af, $to, $via) = @$item;
