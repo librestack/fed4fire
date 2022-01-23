@@ -49,7 +49,18 @@ my %dataname = (
 	is_time     => 0,
 	mode        => 'summary',
 	types       => {
-	    6       => { if1 => sub { get_value(1, 1e-3, @_) }, },
+	    6       => { if1 => sub { get_value(1, 0, 1e-3, @_) }, },
+	},
+    },
+    'server-load' => {
+	file_regex  => qr/^server\d+\./,
+	init_code   => undef,
+	finish_code => \&finish_values,
+	decimals    => 1,
+	is_time     => 0,
+	mode        => 'summary',
+	types       => {
+	    4       => sub { get_value(0, undef, 1e-2, @_) },
 	},
     },
 );
@@ -459,14 +470,17 @@ sub finish_runtime {
 }
 
 sub get_value {
-    my ($idx, $scale, $tb, $ent, $data, $packet, $item, $n_clients) = @_;
+    my ($idx, $interval, $scale, $tb, $ent, $data, $packet, $item, $n_clients) = @_;
     my $v = $item->{values}[$idx];
     defined $v or return;
     # scale value as required and also divide by the elapsed time since last measure
     # so we get a normalised "per second" result
-    my $i = $item->{values}[0];
-    $i < 1 and return;
-    $v *= $scale / $i;
+    if (defined $interval) {
+	my $i = $item->{values}[$interval];
+	$i < 1 and return;
+	$v /= $i;
+    }
+    $v *= $scale;
     my $s = $v * $v;
     if (exists $data->{$n_clients}) {
 	$data->{$n_clients}[0]++;
