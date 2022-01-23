@@ -120,10 +120,11 @@ DATA_NAME is the data item to extract: currently it can only be "run-time"
 
 OPTIONS can be one or more of:
 
-    -r   show data (e.g. 123.456 seconds instead of 2:03.456)
+    -r   show raw data (e.g. 123.456 seconds instead of 2:03.456)
     -a   sort by average value (default)
     -m   sort by maximum value
     -n   sort by experiment name ("UPDATE SCHEDULE SIZE")
+    -c   do not display data, only update cache database
 
 for example, to compare the running time of all "2GB" experiments sorting
 by maximum update time (assuming the tarballs are in ~/results and the

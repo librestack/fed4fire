@@ -8,7 +8,7 @@ use File::Path 'remove_tree';
 use lib "$Bin/../perl";
 use Lwmon;
 
-my $usage = "Usage: $0 [-amnr] DATA_NAME CACHE_DB REPORT_TARBALL [...]\n";
+my $usage = "Usage: $0 [-acmnr] DATA_NAME CACHE_DB REPORT_TARBALL [...]\n";
 my $raw_data = 0;
 my $sort_num = 1;
 my $sort_index = 1;
@@ -19,6 +19,7 @@ while (@ARGV && $ARGV[0] =~ /^-+(.*)$/) {
     while ($opts =~ s/^(.)//) {
 	my $opt = $1;
 	$opt eq 'a' and $sort_num = 1, $sort_index = 1, next;
+	$opt eq 'c' and $sort_num = undef, next;
 	$opt eq 'm' and $sort_num = 1, $sort_index = 4, next;
 	$opt eq 'n' and $sort_num = 0, $sort_index = 0, next;
 	$opt eq 'r' and $raw_data = 1, next;
@@ -236,6 +237,7 @@ for my $tb (@ARGV) {
 	$dir = tempdir() or die "tmpdir: $!\n";
 	my $ptb = $tb =~ m!^/! ? $tb : "./$tb";
 	run_cmd("tar $tb", 'tar', 'xf', $ptb, '-C', $dir);
+	defined $sort_num or print "$tfilename\n";
 	my @clients;
 	if ($count_clients) {
 	    # for multicast, the server does now know how many clients
@@ -348,6 +350,7 @@ for my $tb (@ARGV) {
 	remove_tree($dir);
 	undef $dir;
     }
+    defined $sort_num or next;
     exists $counts{$title} or $counts{$title} = {};
     for my $data (@data) {
 	my $n_clients = $data->[5] || 0;
@@ -364,6 +367,7 @@ for my $tb (@ARGV) {
 	}
     }
 }
+defined $sort_num or exit 0;
 
 my $str_std = '%' . length(sprintf $fmt_std, 0) . 's';
 my $no_std = sprintf $str_std, '-';
