@@ -146,7 +146,15 @@ CREATE TABLE IF NOT EXISTS tarballs (
     id INTEGER NOT NULL PRIMARY KEY,
     filename VARCHAR(256),
     filesize INTEGER,
-    mtime INTEGER
+    mtime INTEGER,
+    testbed_name VARCHAR(256),
+    boot_time INTEGER,
+    n_clients INTEGER,
+    n_servers INTEGER,
+    router_levels INTEGER,
+    experiment VARCHAR(256),
+    schedule VARCHAR(256),
+    size INTEGER
 );
 EOF
 
@@ -171,8 +179,9 @@ EOF
 
 my $add_tarball = $dbh->prepare(<<EOF);
 INSERT INTO tarballs
-(id, filename, filesize, mtime)
-VALUES (?, ?, ?, ?);
+(id, filename, filesize, mtime, testbed_name, boot_time, n_clients,
+ n_servers, router_levels, experiment, schedule, size)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 EOF
 
 for my $create (@{$modes{$mode}{create_tables}}) {
@@ -210,11 +219,14 @@ for my $tb (@ARGV) {
     stat $tb or die "$tb: $!\n";
     my $tfilesize = (stat _)[7];
     my $tmtime = (stat _)[9];
-    $tb =~ /:\d+-(multicast|scp|tcp|udp)-(immediate|random|random2)-(\d+)-\d+\.tar\.gz$/
-	or die "Unrecognised tarball name: $tb\n";
-    my $title = sprintf "%-9s %-9s %4d", $1, $2, $3;
-    my $is_multicast = $1 eq 'multicast';
     (my $tfilename = $tb) =~ s!^.*/!!;
+    $tfilename =~ /^([^:]+):(\d+)-
+		    (multicast|scp|tcp|udp)-
+		    (immediate|random|random2)-(\d+)-\d+\.tar\.gz$/x
+	or die "Unrecognised tarball name: $tb\n";
+    my ($testbed_name, $boot_time, $experiment, $schedule, $size) = ($1, $2, $3, $4, $5);
+    my $title = sprintf "%-9s %-9s %4d", $experiment, $schedule, $size;
+    my $is_multicast = $experiment eq 'multicast';
     # check if we already have this tarball and it is up to date
     my ($id, $cfilesize, $cmtime) = $dbh->selectrow_array($find_tarball, {}, $tfilename);
     if (! defined $cmtime || $cmtime != $tmtime || $cfilesize != $tfilesize) {
@@ -228,7 +240,15 @@ for my $tb (@ARGV) {
 	} else {
 	    ($id) = 1 + ($dbh->selectrow_array($max_tar_id, {}) || 0);
 	}
-	$add_tarball->execute($id, $tfilename, $tfilesize, $tmtime);
+	my ($n_clients, $n_servers, $router_levels) = (0, 1, 0);
+	$testbed_name =~ /^S(\d+)L(\d+)/
+	    and ($n_servers, $n_clients) = ($1, $2);
+	$testbed_name =~ /^S(\d+)R(\d+)L(\d+)/
+	    and ($n_servers, $router_levels, $n_clients) = ($1, $2, $3 * (2 ** ($2 - 1)));
+	$add_tarball->execute($id, $tfilename, $tfilesize, $tmtime,
+			      $testbed_name, $boot_time,
+			      $n_clients, $n_servers, $router_levels,
+			      $experiment, $schedule, $size);
     }
     # check if data is already cached
     my @data = @{ $dbh->selectall_arrayref($get_data, {}, $id, $dataname) };
