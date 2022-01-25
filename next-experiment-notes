@@ -25,6 +25,8 @@
 
 * run a basic system test to make sure things like packet loss etc are known
 
+* check that all node clocks are in sync
+
 * do not import all data into a database, instead extract all files and
   build just an index to them in the database
 
