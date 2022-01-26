@@ -2,7 +2,7 @@
 
 # run lcroute
 
-sudo lcroute `cat /tmp/interface` >>"$logfile" 2>&1 &
+sudo lcroute `tail -1 /tmp/interface` `head -1 /tmp/interface` >>"$logfile" 2>&1 &
 echo "$!" > /tmp/experiment.pid
 # give it time to set up
 sleep 5

@@ -70,10 +70,10 @@ do
     done
     if [ "$r_type" = router ]
     then
-	hname="$r_type$r_number$lname $r_type$r_number"
+	hname="$r_type$r_number$lname-ll $r_type$r_number-ll"
 	lname=s
     else
-	hname="$r_type$r_number"
+	hname="$r_type$r_number-ll"
     fi
     for addr in $addrs
     do

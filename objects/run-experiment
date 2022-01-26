@@ -148,9 +148,6 @@ do
 	    of=/tmp/datafile status=none || continue
 	openssl dgst -blake2b512 -hex -r /tmp/datafile | \
 	    awk '{print $1}' > /tmp/datafile.digest
-    fi
-    if $really
-    then
 	while read what type number host port user
 	do
 	    [ "$what" = NODE ] || continue
