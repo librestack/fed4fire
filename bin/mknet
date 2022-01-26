@@ -10,21 +10,24 @@ my $pr4 = '192.168';
 my $pr6 = sprintf 'fd%02x:%x:%x', rand(256), rand(65536), rand(65536);
 
 my %authority = (
-    # name => [qw(authority disk_image control_interface?)],
+    # name => [qw(authority disk_image control_interface? copy_keys?)],
     vwall1 => [qw(
 	urn:publicid:IDN+wall1.ilabt.iminds.be+authority+cm
 	urn:publicid:IDN+wall1.ilabt.iminds.be+image+emulab-ops:UBUNTU20-64-STD
 	1
+	0
     )],
     vwall2 => [qw(
 	urn:publicid:IDN+wall2.ilabt.iminds.be+authority+cm
 	urn:publicid:IDN+wall2.ilabt.iminds.be+image+emulab-ops:UBUNTU20-64-STD
 	1
+	0
     )],
     grid5000 => [qw(
 	urn:publicid:IDN+am.grid5000.fr+authority+am
 	urn:publicid:IDN+am.grid5000.fr+image+kadeploy3:ubuntu2004-x64-min
 	0
+	1
     )],
 
 );
@@ -88,7 +91,7 @@ $S < 1 and die "S must be at least 1\n";
 $L < 1 and die "L must be at least 1\n";
 defined $R && $R < 1 and die "R must be at least 1\n";
 
-my ($nodeauth, $image, $ctrl_if) = @{$authority{$AUTH}};
+my ($nodeauth, $image, $ctrl_if, $copy_keys) = @{$authority{$AUTH}};
 
 if (! defined $EXP) {
     $EXP = "S$S";
@@ -598,6 +601,10 @@ sub create_script {
 		$script .= sprintf "rte6 %s %d %s:%x::/64 %s:%x::%x\n",
 				   $type, $number, $pr6, $rt, $pr6, $rl, $ra;
 	    }
+	}
+	# copy keys if required
+	if ($copy_keys) {
+	    $script .= "keys $type $number\n";
 	}
     }
 }

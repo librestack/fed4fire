@@ -15,7 +15,7 @@ fi
 
 while read what type number rest
 do
-    [ "$what" = node ] || continue
+    [ "$what" = keys ] || continue
     echo "$type$number"
     ./bin/rsync-to-experiment "$EXP" "$DIR" "$type$number" -avHP \
 	objects/id_rsa* objects/add-keys /tmp/experiment/ < /dev/null || exit 1
