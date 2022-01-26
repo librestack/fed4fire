@@ -205,7 +205,7 @@ do
 	    then
 		# create result tarballs and copy them to server
 		msg "Copying results to server"
-		tarball="/tmp/$exp-$experiment-$schedule-$size-`date +%Y%m%d%H%M%S`.tar.gz"
+		tarball="/tmp/$exp-$experiment-$schedule-$size-`TZ=GMT date +%Y%m%d%H%M%S`.tar.gz"
 		tar czf "$tarball" -C /tmp/results .
 		rsync -avHP --inplace "$tarball" f4fresults.w42.org::f4f-results/
 		rm "$tarball"
@@ -213,7 +213,7 @@ do
 	    if $copy_logs && $really
 	    then
 		msg "Copying logs to server"
-		tarball="/tmp/$exp-$experiment-$schedule-$size-`date +%Y%m%d%H%M%S`.logs.tar.gz"
+		tarball="/tmp/$exp-$experiment-$schedule-$size-`TZ=GMT date +%Y%m%d%H%M%S`.logs.tar.gz"
 		tar czf "$tarball" -C /tmp/logs .
 		rsync -avHP --inplace "$tarball" f4fresults.w42.org::f4f-logs/
 		rm "$tarball"
