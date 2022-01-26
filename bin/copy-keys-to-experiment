@@ -1,0 +1,24 @@
+#!/bin/sh
+
+if [ $# = 1 ]
+then
+    EXP="$1"
+    DIR=/var/tmp
+elif [ $# = 2 ]
+then
+    EXP="$1"
+    DIR="$2"
+else
+    echo "Usage: `basename "$0"` EXP [DIR]" >&2
+    exit 1
+fi
+
+while read what type number rest
+do
+    [ "$what" = node ] || continue
+    echo "$type$number"
+    ./bin/rsync-to-experiment "$EXP" "$DIR" "$type$number" -avHP \
+	objects/id_rsa* objects/add-keys /tmp/experiment/ < /dev/null || exit 1
+    ./bin/ssh-experiment "$EXP" "$type$number" /tmp/experiment/add-keys < /dev/null || exit 1
+done < "$DIR/$EXP/action.script"
+

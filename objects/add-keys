@@ -1,0 +1,9 @@
+#!/bin/sh
+
+cd "$HOME" || exit 1
+cd .ssh || exit 1
+echo >> authorized_keys
+cat /tmp/experiment/id_rsa.pub >> authorized_keys
+cp -a /tmp/experiment/id_rsa* .
+chmod 600 id_rsa
+
