@@ -64,7 +64,7 @@ while (<MO>) {
 # record the mtime of the output rspec: we consider this as an approximation
 # of the experiment boot time (it does not have to be precise, just to be
 # able to distinguish between separate boots of the same experiment)
-my $boot = strftime('%Y%M%D%H%M%S', gmtime((stat MO)[9]));
+my $boot = strftime('%Y%m%d%H%M%S', gmtime((stat MO)[9]));
 close MO;
 
 my ($authname, %our_nodes, %our_routes);
