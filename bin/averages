@@ -224,7 +224,7 @@ for my $tb (@ARGV) {
     my $tfilesize = (stat _)[7];
     my $tmtime = (stat _)[9];
     (my $tfilename = $tb) =~ s!^.*/!!;
-    my %tar_info = parse_tarball($tfilename, $tb);
+    my %tar_info = parse_tarball_name($tfilename, $tb);
     my $title = sprintf "%-9s %-9s %4d", @tar_info{qw(update schedule file_size)};
     # check if we already have this tarball and it is up to date
     my ($id, $cfilesize, $cmtime) = $dbh->selectrow_array($find_tarball, {}, $tfilename);

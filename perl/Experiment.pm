@@ -13,7 +13,7 @@ sub parse_tarball_name {
     @_ == 1 || @_ == 2 or croak "Usage: parse_tarball_name(FILENAME [, PRINT_FILENAME])";
     my ($tb, $prn) = @_ == 1 ? (@_, @_) : @_;
     $tb =~ /
-	(S\d+(?:R\d+)L\d+)              # $1 topology
+	(S\d+(?:R\d+)?L\d+)             # $1 topology
 	([A-Z]*)-                       # $2 suffix to make unique
 	(\w+)-                          # $3 testbed e.g. vwall1, vwall2, grid5000
 	(\d{14})-                       # $4 boot timestamp YYYYMMDDHHMMSS
@@ -33,17 +33,17 @@ sub parse_tarball_name {
 	file_size  => $7,
 	run_time   => $8,
     );
-    $d{is_multicast} = $d{update_method} eq 'multicast';
+    $d{is_multicast} = $d{update} eq 'multicast';
     if ($d{topology} =~ /^S(\d+)L(\d+)$/) {
 	$d{n_servers} = $1;
-	$d{n_router_levels} = 0;
+	$d{router_levels} = 0;
 	$d{n_lans} = 1;
 	$d{n_clients} = $2;
     } elsif ($d{topology} =~ /^S(\d+)R(\d+)L(\d+)$/) {
 	$d{n_servers} = $1;
-	$d{n_router_levels} = $2;
+	$d{router_levels} = $2;
 	$d{n_lans} = 2 ** ($2 - 1);
-	$d{n_clients} = $3 * $d{lans};
+	$d{n_clients} = $3 * $d{n_lans};
     } else {
 	die "Internal error, topology($d{topology}) has wrong format\n";
     }

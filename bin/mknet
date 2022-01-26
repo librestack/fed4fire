@@ -98,7 +98,7 @@ my ($nodeauth, $image, $ctrl_if, $copy_keys) = @{$authority{$AUTH}};
 if (! defined $EXP) {
     $EXP = "S$S";
     defined $R and $EXP .= "R$R";
-    $EXP .= "L${L}A$SUFFIX";
+    $EXP .= "L${L}$SUFFIX";
 }
 
 my $BASE = "$DIR/$EXP";
