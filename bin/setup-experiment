@@ -26,18 +26,27 @@ while (<HF>) {
 }
 close HF;
 
+my $rsync;
+for my $path ($Bin, split(/:/, $ENV{PATH})) {
+    -f "$path/rsync-to-experiment" or next;
+    -x _ or next;
+    $rsync = "$path/rsync-to-experiment";
+    last;
+}
+defined $rsync or die "Cannot find rsync-to-experiment in $Bin or PATH\n";
+
 my %hwaddr;
 my $mo = "$DIR/$EXP/output.rspec";
 open(MO, '<', $mo) or die "$mo: $!\n";
 while (<MO>) {
-    /^\s+<interface\s/i or next;
+    /^\s+<interface(?:_ref)?\s/i or next;
     /\bclient_id="(\w+):(\w+)"/i or next;
     my ($node, $ifno) = ($1, $2);
-    /\bmac_address="([[:xdigit:]]{2})
-		    ([[:xdigit:]]{2})
-		    ([[:xdigit:]]{2})
-		    ([[:xdigit:]]{2})
-		    ([[:xdigit:]]{2})
+    /\bmac_address="([[:xdigit:]]{2}):?
+		    ([[:xdigit:]]{2}):?
+		    ([[:xdigit:]]{2}):?
+		    ([[:xdigit:]]{2}):?
+		    ([[:xdigit:]]{2}):?
 		    ([[:xdigit:]]{2})"/ix or next;
     my $hwaddr = join(':', $1, $2, $3, $4, $5, $6);
     $hwaddr{$node}{$ifno} = $hwaddr;
@@ -57,8 +66,8 @@ while (<ES>) {
 	my $node = $type . $number;
 	exists $ansible_nodes{$node}
 	    or die "Invalid data: $type $number not known\n";
-	exists $hwaddr{$node}
-	    {$ifno} or die "Invalid data: $type $number does not have $ifno\n";
+	exists $hwaddr{$node}{$ifno}
+	    or die "Invalid data: $type $number does not have $ifno\n";
 	my $hwaddr = $hwaddr{$node}{$ifno};
 	push @{$our_nodes{$node}}, [ $hwaddr, $ipv4, $ipv6 ];
     } elsif (/^rte([46])\s+(\w+)\s+(\d+)\s+(\S+)\s+(\S+)\b/) {
@@ -144,8 +153,7 @@ for my $try_key ('id_rsa', "$Bin/../objects/id_rsa") {
 }
 
 # copy binaries and experiment data to director
-my ($d_type, $d_node, $d_host, $d_port, $d_user) = @{$ansible_nodes{director0}};
-rsync($d_host, $d_port, $d_user, '/tmp/experiment',
+rsync('director0', '/tmp/experiment',
       './', "$DIR/$EXP/setup-data", "$DIR/$EXP/sizes", "$DIR/$EXP/hosts");
 
 # run setup script on director
@@ -155,10 +163,8 @@ rsync($d_host, $d_port, $d_user, '/tmp/experiment',
 #XXX ssh($d_host, $d_port, $d_user, '/tmp/experiment/run-experiment');
 
 sub rsync {
-    my ($h, $p, $u, $remdir, @locfiles) = @_;
-    my $ssh = join(' ', @ssh, '-p', $p);
-    my @rsync = ('rsync', '-avHPe', $ssh, @locfiles, "$u\@$h:$remdir");
-    run("$rsync[0] @locfiles", @rsync);
+    my ($node, $remdir, @locfiles) = @_;
+    run("rsync @locfiles", $rsync, $EXP, $DIR, $node, '-avHP', @locfiles, $remdir);
 }
 
 sub run {
