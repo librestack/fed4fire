@@ -89,7 +89,7 @@ for (my $n_file = 0; $n_file < @ARGV; $n_file++) {
     my $name = $ARGV[$n_file];
     my $path = abs_path($name);
     defined $path or die "Something wrong with $name\n";
-    $path =~ m|/(\w+):(\d+)-(\w+)-(\w+)-(\d+)-(\d+)\.|
+    $path =~ m|/([^:]+):(\d+)-(\w+)-(\w+)-(\d+)-(\d+)\.|
 	or die "Invalid datafile name: $name\n";
     my ($topology, $boot_time, $experiment, $schedule, $size, $endrun) =
 	($1, $2, $3, $4, $5, $6);
