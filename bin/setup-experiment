@@ -88,6 +88,8 @@ while (<ES>) {
 	$1 eq $EXP or die "Inconsistent experiment name in $es: $1\n";
     } elsif (/^auth\s+(\S+)\b/) {
 	$authname = $1;
+    } elsif (/^keys\s/) {
+	# ignore it
     } else {
 	die "$es.$.: Invalid line $_";
     }
