@@ -1,6 +1,7 @@
 #!/usr/bin/perl -w
 
 use strict;
+use POSIX 'strftime';
 use FindBin '$Bin';
 
 @ARGV == 2 || @ARGV == 3 or die "Usage: $0 SIZES EXP_NAME [BASE_DIR]\n";
@@ -63,10 +64,10 @@ while (<MO>) {
 # record the mtime of the output rspec: we consider this as an approximation
 # of the experiment boot time (it does not have to be precise, just to be
 # able to distinguish between separate boots of the same experiment)
-my $boot = (stat MO)[9];
+my $boot = strftime('%Y%M%D%H%M%S', gmtime((stat MO)[9]));
 close MO;
 
-my (%our_nodes, %our_routes);
+my ($authname, %our_nodes, %our_routes);
 my $es = "$DIR/$EXP/action.script";
 open (ES, '<', $es) or die "$es: $!\n";
 while (<ES>) {
@@ -83,11 +84,16 @@ while (<ES>) {
 	my ($af, $type, $number, $to, $via) = ($1, $2, $3, $4, $5);
 	my $node = $type . $number;
 	push @{$our_routes{$node}}, [ $af, $to, $via ];
+    } elsif (/^name\s+(\S+)\b/) {
+	$1 eq $EXP or die "Inconsistent experiment name in $es: $1\n";
+    } elsif (/^auth\s+(\S+)\b/) {
+	$authname = $1;
     } else {
 	die "$es.$.: Invalid line $_";
     }
 }
 close ES;
+defined $authname or die "$es: No testbed name\n";
 exists $our_nodes{director0} or die "$es: No director defined\n";
 exists $our_nodes{client0} or die "$es: No clients defined\n";
 exists $our_nodes{server0} or die "$es: No servers defined\n";
@@ -98,7 +104,7 @@ chdir $bin or die "$bin: $!\n";
 # create setup data
 open(SD, '>', "$DIR/$EXP/setup-data.tmp") or die "$DIR/$EXP/setup-data.tmp: $!\n";
 open(HD, '>', "$DIR/$EXP/hosts.tmp") or die "$DIR/$EXP/hosts.tmp: $!\n";
-print SD "NAME $EXP:$boot\n" or die "$DIR/$EXP/setup-data.tmp: $!\n";
+print SD "NAME $EXP-$authname-$boot\n" or die "$DIR/$EXP/setup-data.tmp: $!\n";
 $hslen += 4;
 # The setup-data file determines the order the director does things,
 # in particular setting up we want them in the order: director,

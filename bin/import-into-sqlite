@@ -1,5 +1,7 @@
 #!/usr/bin/perl -w
 
+# XXX this may need changing for the new file name schemes
+
 use strict;
 use DBI;
 use Cwd 'abs_path';
@@ -89,6 +91,7 @@ for (my $n_file = 0; $n_file < @ARGV; $n_file++) {
     my $name = $ARGV[$n_file];
     my $path = abs_path($name);
     defined $path or die "Something wrong with $name\n";
+    # XXX the next line needs to be changed for the new file names
     $path =~ m|/([^:]+):(\d+)-(\w+)-(\w+)-(\d+)-(\d+)\.|
 	or die "Invalid datafile name: $name\n";
     my ($topology, $boot_time, $experiment, $schedule, $size, $endrun) =

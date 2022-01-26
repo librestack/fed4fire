@@ -6,15 +6,13 @@ To create the "LAN" experiment with $C clients:
 
 C=...
 
-exp="exp.1lan.$C"
-./bin/mknet L=$C EXP=$exp [other options, see below]
+./bin/mknet L=$C [other options, see below]
 
 To create the "Two LANs" experiment with $C clients:
 
 C=...
 
-exp="exp.2lan.$C"
-./bin/mknet L=$C R=1 EXP=$exp [other options, see below]
+./bin/mknet L=$C R=1 [other options, see below]
 
 To create the "Generic experiment with $L clients per LAN and $R router levels
 ($R >= 2):
@@ -22,14 +20,18 @@ To create the "Generic experiment with $L clients per LAN and $R router levels
 L=...
 R=...
 
-exp="exp.generic.$R.$L"
-./bin/mknet L=$L R=$R EXP=$exp [other options, see below]
+./bin/mknet L=$L R=$R [other options, see below]
 
-other options:
+other options (case is actually unimportant, so "time=180" is the same as
+("TIME=180"):
     TIME=180                 time in minutes before the testbed expires,
                              default is 120 (jfed's default)
     AUTH=vwall1              change autority (default: wvall2)
     AUTH=grid5000            Change authority to GRID5000 (Separate testbed)
+    SUFFIX=A                 Add a suffix to the experiment name, which is
+                             generated from the number of routers and clients,
+                             if needed to make the name unique in the testbed
+    EXP=S1R3L5               overrides the generated experiment name
     PWD=~/data/login.pwd     file containing password for login.pem
     K=~/.ssh/id_rsa.pub      add another allowed ssh key to the testbed
                              (the one from login.pem and the one in the

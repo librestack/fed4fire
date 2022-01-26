@@ -38,6 +38,7 @@ my $S = 1;
 my $TIME = 120;
 my $DIR = '/var/tmp';
 my $AUTH = 'vwall1';
+my $SUFFIX = '';
 my @config;
 -f "$Bin/../objects/id_rsa.pub" and push @config, "K=$Bin/../objects/id_rsa.pub";
 
@@ -66,6 +67,7 @@ while (@config) {
     $A =~ /^SCRIPT=(.+)$/i and $SCRIPT = $1, next;
     $A =~ /^LOGIN=(.+)$/i and ($LOGIN = $1) =~ s|^~/|$ENV{HOME}/|, next;
     $A =~ /^PWD=(.+)$/i and $PWD = $1, next;
+    $A =~ /^SUFFIX=(\w+)$/i and $SUFFIX = $1, next;
     $A =~ /^EXP=(.+)$/i and $EXP = $1, next;
     $A =~ /^DIR=(.+)$/i and $DIR = $1, next;
     $A =~ /^U=(.+)$/i and do { push @U, $1; next; };
@@ -96,15 +98,16 @@ my ($nodeauth, $image, $ctrl_if, $copy_keys) = @{$authority{$AUTH}};
 if (! defined $EXP) {
     $EXP = "S$S";
     defined $R and $EXP .= "R$R";
-    $EXP .= "L${L}A$AUTH";
+    $EXP .= "L${L}A$SUFFIX";
 }
 
--d "$DIR/$EXP" or mkdir "$DIR/$EXP" || die "$DIR/$EXP: $!\n";
-defined $RSPEC or $RSPEC = "$DIR/$EXP/action.rspec";
-defined $RUNFILE or $RUNFILE = "$DIR/$EXP/action.yaml";
-defined $DELETEFILE or $DELETEFILE = "$DIR/$EXP/delete.yaml";
-defined $RENEWFILE or $RENEWFILE = "$DIR/$EXP/renew.yaml";
-defined $SCRIPT or $SCRIPT = "$DIR/$EXP/action.script";
+my $BASE = "$DIR/$EXP";
+-d $BASE or mkdir $BASE || die "$BASE: $!\n";
+defined $RSPEC or $RSPEC = "$BASE/action.rspec";
+defined $RUNFILE or $RUNFILE = "$BASE/action.yaml";
+defined $DELETEFILE or $DELETEFILE = "$BASE/delete.yaml";
+defined $RENEWFILE or $RENEWFILE = "$BASE/renew.yaml";
+defined $SCRIPT or $SCRIPT = "$BASE/action.script";
 
 my $nLAN = defined $R ? (2 ** ($R - 1)) : 1;
 my $rLAN = (defined $R && $R > 1) ? (2 ** ($R - 1) - 1) : 0;
@@ -112,12 +115,13 @@ my $C = $nLAN * $L;
 # In theory we would be checking for overflow on $C aka "experiment so
 # large you won't find enough hardware".
 
-printf "Servers (S):        %8d\n", $S;
-defined $R and printf "Router path (R):    %8d\n", $R;
-defined $R and printf "Router LANs:        %8d\n", $rLAN;
-printf "Client LANs:        %8d\n", $nLAN;
-printf "Clente per LAN (L): %8d\n", $L;
-printf "Total clients (C):  %8d\n", $C;
+printf "Servers (S):        %10d\n", $S;
+defined $R and printf "Router path (R):    %10d\n", $R;
+defined $R and printf "Router LANs:        %10d\n", $rLAN;
+printf "Client LANs:        %10d\n", $nLAN;
+printf "Clente per LAN (L): %10d\n", $L;
+printf "Total clients (C):  %10d\n", $C;
+printf "Experiment name:    %10s\n", $EXP;
 print "\n";
 
 my ($rspec, $runfile, $deletefile, $renewfile, $script, @nodes, @routes, $user);
@@ -550,7 +554,7 @@ EOF
 sub create_script {
     # "script" is really just a set of parameters for setup-experiment
     # create_rspec() already generated all IP addresses
-    $script = '';
+    $script = "name $EXP\nauth $AUTH\n";
     my %routes = ();
     if (@routes) {
 	for my $route (@routes) {
