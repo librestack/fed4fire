@@ -26,6 +26,15 @@ while (<HF>) {
 }
 close HF;
 
+my $copy_keys;
+for my $path ($Bin, split(/:/, $ENV{PATH})) {
+    -f "$path/copy-keys-to-experiment" or next;
+    -x _ or next;
+    $copy_keys = "$path/copy-keys-to-experiment";
+    last;
+}
+defined $copy_keys and run('copy-keys-to-experiment', $copy_keys, $EXP, $DIR);
+
 my $rsync;
 for my $path ($Bin, split(/:/, $ENV{PATH})) {
     -f "$path/rsync-to-experiment" or next;
