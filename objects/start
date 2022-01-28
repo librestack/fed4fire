@@ -98,7 +98,14 @@ then
 	done
     ) &
 fi
-lwmon -c /tmp/lwmon-config
+
+# I don't know why but occasionally this shell script manages to hang waiting
+# for lwmon even though lwmon has terminated successfully - the shell doesn't
+# seem to get a SIGCHLD or something... so as a workaround we do an explicit
+# wait on its PID
+#--- lwmon -c /tmp/lwmon-config
+lwmon -c /tmp/lwmon-config &
+wait $!
 
 # copy the results back to director -- which seems to be unable to cope
 # with too many incoming connections, hence the loop and retries
