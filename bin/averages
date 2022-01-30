@@ -24,6 +24,7 @@ while (@ARGV && $ARGV[0] =~ /^-+(.*)$/) {
 	$opt eq 'm' and $sort_num = 1, $sort_index = 4, next;
 	$opt eq 'n' and $sort_num = 0, $sort_index = 0, next;
 	$opt eq 'r' and $raw_data = 1, next;
+	$opt eq 's' and $sort_num = 1, $sort_index = 6, next;
 	die $usage;
     }
 }
@@ -226,6 +227,7 @@ for my $tb (@ARGV) {
     (my $tfilename = $tb) =~ s!^.*/!!;
     my %tar_info = parse_tarball_name($tfilename, $tb);
     my $title = sprintf "%-9s %-9s %4d", @tar_info{qw(update schedule file_size)};
+    my $size = $tar_info{file_size};
     # check if we already have this tarball and it is up to date
     my ($id, $cfilesize, $cmtime) = $dbh->selectrow_array($find_tarball, {}, $tfilename);
     if (! defined $cmtime || $cmtime != $tmtime || $cfilesize != $tfilesize) {
@@ -369,15 +371,15 @@ for my $tb (@ARGV) {
     for my $data (@data) {
 	my $n_clients = $data->[5] || 0;
 	if (exists $counts{$title}{$n_clients}) {
-	    $counts{$title}{$n_clients}[0] += $data->[0];
-	    $counts{$title}{$n_clients}[1] += $data->[1];
-	    $counts{$title}{$n_clients}[2] += $data->[2];
-	    $counts{$title}{$n_clients}[3] > $data->[3]
-		and $counts{$title}{$n_clients}[3] = $data->[3];
-	    $counts{$title}{$n_clients}[4] < $data->[4]
-		and $counts{$title}{$n_clients}[4] = $data->[4];
+	    $counts{$title}{$n_clients}[1] += $data->[0];
+	    $counts{$title}{$n_clients}[2] += $data->[1];
+	    $counts{$title}{$n_clients}[3] += $data->[2];
+	    $counts{$title}{$n_clients}[4] > $data->[3]
+		and $counts{$title}{$n_clients}[4] = $data->[3];
+	    $counts{$title}{$n_clients}[5] < $data->[4]
+		and $counts{$title}{$n_clients}[5] = $data->[4];
 	} else {
-	    $counts{$title}{$n_clients} = $data;
+	    $counts{$title}{$n_clients} = [$size, @$data];
 	}
     }
 }
@@ -388,7 +390,7 @@ my $no_std = sprintf $str_std, '-';
 my @results;
 for my $title (keys %counts) {
     for my $n_clients (sort { $a <=> $b } keys %{$counts{$title}}) {
-	my ($count, $total, $square, $min, $max) = @{$counts{$title}{$n_clients}};
+	my ($size, $count, $total, $square, $min, $max) = @{$counts{$title}{$n_clients}};
 	my $avg = $total / $count;
 	my $std;
 	if ($count > 1) {
@@ -403,7 +405,7 @@ for my $title (keys %counts) {
 	}
 	my $tt = $title;
 	$count_clients and $tt .= sprintf "%8d", $n_clients;
-	push @results, [$tt, $avg, $count, $min, $max, $std];
+	push @results, [$tt, $avg, $count, $min, $max, $std, $size];
     }
 }
 
