@@ -3,6 +3,7 @@
 load_sleep=60
 copy_results=true
 copy_logs=false
+copy_arg=''
 sizes=''
 schedules=''
 experiments=''
@@ -13,7 +14,7 @@ do
     opt="$1"; shift
     case "$opt" in
 	-n|--no|--no-copy) copy_results=false ;;
-	-l|--logs|--copy-logs) copy_logs=true ;;
+	-l|--logs|--copy-logs) copy_logs=true; copy_arg=copy ;;
 	-s|--sleep) load_sleep="$1"; shift ;;
 	-d|--duration) default_duration="$1"; shift ;;
 	-z|--size) sizes="$sizes $1"; shift ;;
@@ -190,13 +191,16 @@ do
 	    echo "$experiment $schedule $size" > /tmp/current-experiment
 	    # start all routers and servers
 	    run_all Starting router 'start up' /tmp/ready \
-		    /tmp/experiment/start "$schedule" "$experiment" '[TYPE]' '[NUMBER]' "$size" "$duration"
+		    /tmp/experiment/start "$schedule" "$experiment" \
+			'[TYPE]' '[NUMBER]' "$size" "$duration" $copy_arg
 	    run_all Starting server 'start up' /tmp/ready \
-		    /tmp/experiment/start "$schedule" "$experiment" '[TYPE]' '[NUMBER]' "$size" "$duration"
+		    /tmp/experiment/start "$schedule" "$experiment" \
+			'[TYPE]' '[NUMBER]' "$size" "$duration" $copy_arg
 	    # start all clients and run the experiment
 	    before=`date +%s`
 	    run_all Starting client complete /tmp/results \
-		    /tmp/experiment/start "$schedule" "$experiment" '[TYPE]' '[NUMBER]' "$size" "$duration"
+		    /tmp/experiment/start "$schedule" "$experiment" \
+			'[TYPE]' '[NUMBER]' "$size" "$duration" $copy_arg
 	    [ "$schedule" = immediate ] && duration=$(( `date +%s` - $before ))
 	    # stop servers and routers
 	    run_all Stopping server complete /tmp/results /tmp/experiment/stop

@@ -11,6 +11,8 @@ export type="$3"
 export number="$4"
 export size="$5"
 export duration="$6"
+copy_logs=false
+[ ".$7" = .copy ] && copy_logs=true
 
 # setup-node writes the name of the interface to use for packets here
 export interface="`head -1 /tmp/interface`"
@@ -109,7 +111,7 @@ wait $!
 
 # copy the results back to director -- which seems to be unable to cope
 # with too many incoming connections, hence the loop and retries
-if [ -f "$logfile" ]
+if $copy_logs && [ -f "$logfile" ]
 then
     for n in 1 2 3 4 5 6 7 8
     do
