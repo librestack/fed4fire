@@ -211,7 +211,13 @@ do
 		msg "Copying results to server"
 		tarball="/tmp/$exp-$experiment-$schedule-$size-`TZ=GMT date +%Y%m%d%H%M%S`.tar.gz"
 		tar czf "$tarball" -C /tmp/results .
-		rsync -avHP --inplace "$tarball" f4fresults.w42.org::f4f-results/
+		# in theory rsync can fail, so let's try a few times...
+		for retry in 1 2 4 8 12 16 20 25 30 60 60 60
+		do
+		    rsync -avHP --inplace "$tarball" f4fresults.w42.org::f4f-results/ && break
+		    msg "Sleeping $retry seconds before retrying"
+		    sleep $retry
+		done
 		rm "$tarball"
 	    fi
 	    if $copy_logs && $really
@@ -219,7 +225,12 @@ do
 		msg "Copying logs to server"
 		tarball="/tmp/$exp-$experiment-$schedule-$size-`TZ=GMT date +%Y%m%d%H%M%S`.logs.tar.gz"
 		tar czf "$tarball" -C /tmp/logs .
-		rsync -avHP --inplace "$tarball" f4fresults.w42.org::f4f-logs/
+		for retry in 1 2 4 8 12 16 20 25 30 60 60 60
+		do
+		    rsync -avHP --inplace "$tarball" f4fresults.w42.org::f4f-logs/ && break
+		    msg "Sleeping $retry seconds before retrying"
+		    sleep $retry
+		done
 		rm "$tarball"
 	    fi
 	    # clean up
