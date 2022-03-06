@@ -67,7 +67,7 @@ while (<MO>) {
 my $boot = strftime('%Y%m%d%H%M%S', gmtime((stat MO)[9]));
 close MO;
 
-my ($authname, %our_nodes, %our_routes);
+my ($authname, %our_nodes, %our_routes, $has_servers, $has_clients);
 my $es = "$DIR/$EXP/action.script";
 open (ES, '<', $es) or die "$es: $!\n";
 while (<ES>) {
@@ -80,6 +80,8 @@ while (<ES>) {
 	    or die "Invalid data: $type $number does not have $ifno\n";
 	my $hwaddr = $hwaddr{$node}{$ifno};
 	push @{$our_nodes{$node}}, [ $hwaddr, $ipv4, $ipv6 ];
+	$type eq 'server' and $has_servers = 1;
+	$type eq 'client' and $has_clients = 1;
     } elsif (/^rte([46])\s+(\w+)\s+(\d+)\s+(\S+)\s+(\S+)\b/) {
 	my ($af, $type, $number, $to, $via) = ($1, $2, $3, $4, $5);
 	my $node = $type . $number;
@@ -97,8 +99,8 @@ while (<ES>) {
 close ES;
 defined $authname or die "$es: No testbed name\n";
 exists $our_nodes{director0} or die "$es: No director defined\n";
-exists $our_nodes{client0} or die "$es: No clients defined\n";
-exists $our_nodes{server0} or die "$es: No servers defined\n";
+$has_clients or die "$es: No clients defined\n";
+$has_servers or die "$es: No servers defined\n";
 
 my $bin = "$Bin/../objects";
 chdir $bin or die "$bin: $!\n";
