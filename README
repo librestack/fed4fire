@@ -127,12 +127,24 @@ OPTIONS can be one or more of:
     -m   sort by maximum value
     -n   sort by experiment name ("UPDATE SCHEDULE SIZE")
     -c   do not display data, only update cache database
+    -p   interpret TARBALL as a "prefix" (like adding a "*" to the end
+         but expanded by the script and not the shell, and also excluding
+         incomplete and test runs)
 
 for example, to compare the running time of all "2GB" experiments sorting
 by maximum update time (assuming the tarballs are in ~/results and the
 file names are as produced by the experiment):
 
-./bin/average -m run-time /tmp/cache.sqlite ~/results/*-2048-*.tar.gz
+./bin/average -m run-time /tmp/cache.sqlite ~/results/*-2048-*[0-9].tar.gz
+
+(the "[0-9]" is a quick way to exclude names which don't end in a
+numeric timestamp, for example incomplete and test runs)
+
+and to summarise all runs from experiment S1L49F:
+
+./bin/average -m -p run-time /tmp/cache.sqlite ~/results/S1L49F-
+
+in this case, using "-p" simplifies the command line
 
 ==============================================
 
@@ -159,73 +171,4 @@ These are lwmon binary files; to display the contants (install lwmon and) type:
 lwmon -P- -R "$DST_DIR"/server0.multicast.immediate.128.S1R2L2.20211219135844
 
 See lwmon(1) for other options
-
-Alternatively, the data can be imported into a SQLite database with:
-
-./bin/import-into-sqlite database.sqlite "$DST_DIR"/*
-
-The database will contain tens of millions of rows if importing the full
-experiment results, and will require about 4GB of free space.  Once this
-has been created, the following command will extract a "summary" of
-all the data we measure collected by experiment type and number of
-active clients:
-
-./bin/lookup-result database.sqlite all out=summary.sqlite
-
-the same program can also select a subset of the data (replaceing the "all"
-with items like server:load or router:tx (bytes transmitted), and it can
-just print the numbers on standard output rather than creating a database
-by omitting the "Out=" line (this is why it's called "lookup-result",
-originally it was meant to look up a specific experiment).
-
-Another tool allows to average the information from the summary database
-and just print things like server CPU usage versus number of clients
-active with something like:
-
-./bin/get-summary summary.sqlite server usercpu (experiment types, schedules, sizes)
-
-e.g. for multicast and scp experiments, "immediate" scheduling and 2048 MB:
-
-./bin/get-summary summary.sqlite server usercpu multicast scp immediate 2048
-
-For a comprehensive set of summary data given the database with all inputs
-in ~/DB/jfed.sqlite:
-
-mkdir -p /tmp/jfed
-
-# Rebuild summary DB:
-rm ~/DB/summary.sqlite
-lookup-result ~/DB/jfed.sqlite all out=~/DB/summary.sqlite
-net-totals ~/DB/jfed.sqlite ~/DB/summary.sqlite
-
-# "by testbed" files:
-mkdir /tmp/jfed/by-number-and-testbed /tmp/jfed/totals-by-number-and-testbed
-get-summary ~/DB/summary.sqlite instance an server:totcpu server:mem \
-  server:tx ae as az out=/tmp/jfed/by-number-and-testbed/%s.txt \
-  group=schedule,datasize,topology,instance
-get-summary ~/DB/summary.sqlite instance an server:tot_tx client:update_time \
-  ae as az out=/tmp/jfed/totals-by-number-and-testbed/%s.txt \
-  group=schedule,datasize,topology,instance
-
-# "by topology" files:
-mkdir /tmp/jfed/by-number-and-topology /tmp/jfed/totals-by-number-and-topology
-get-summary ~/DB/summary.sqlite an server:totcpu server:mem server:tx ae as \
-  az out=/tmp/jfed/by-number-and-topology/%s.txt \
-  group=schedule,datasize,topology
-get-summary ~/DB/summary.sqlite an server:tot_tx client:update_time ae as \
-  az out=/tmp/jfed/totals-by-number-and-topology/%s.txt \
-  group=schedule,datasize,topology
-
-# "by number of clients" files:
-mkdir /tmp/jfed/by-number /tmp/jfed/totals-by-number
-get-summary ~/DB/summary.sqlite server:totcpu server:mem server:tx ae as az \
-  out=/tmp/jfed/by-number/%s.txt group=schedule,datasize
-get-summary ~/DB/summary.sqlite server:tot_tx client:update_time ae as az \
-  out=/tmp/jfed/totals-by-number/%s.txt group=schedule,datasize
-
-# "all runs" files:
-mkdir /tmp/jfed/runs /tmp/jfed/run_totals
-lookup-result ~/DB/jfed.sqlite server:tx server:load \
-  server:totcpu server:mem txt=/tmp/jfed/runs/%s.txt
-net-totals ~/DB/jfed.sqlite ~/DB/summary.sqlite /tmp/jfed/run_totals/%s.txt
 

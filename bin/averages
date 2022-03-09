@@ -273,6 +273,7 @@ for my $tbp (@ARGV) {
 	opendir (TBDIR, $dir) or die "$dir: $!\n";
 	while (defined (my $ent = readdir TBDIR)) {
 	    $ent =~ $re or next;
+	    $ent =~ /\.tar\.gz$/ or next;
 	    $ent =~ /\.(?:partial|test)\./ and next;
 	    stat "$dir/$ent" or die "$dir/$ent $!\n";
 	    -f _ and push @tbs, "$dir/$ent";
