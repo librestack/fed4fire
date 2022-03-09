@@ -819,7 +819,7 @@ $ lwmon-to-sql [options] FILES | \
 \end{verbatim}
 \end{small}
 
-As described below in~\ref{importing}, for this experiment we have developed
+As described below in~\ref{summaries}, for this experiment we have developed
 a tool which calls {\tt lwmon-to-sql} in the appropriate way to import
 experiment results in a format suitable for further analysis.
 
@@ -831,8 +831,8 @@ experiment results in a format suitable for further analysis.
 \label{unisync}
 \TODO{unisync}
 
-\subsection{Importing results into a database}
-\label{importing}
+\subsection{Summarising data}
+\label{summaries}
 
 {\em The programs described here are in the ``experiment scripts''
 repository~\cite{exp:scripts}.}
@@ -855,170 +855,170 @@ These tar archives have names like:
 
 \begin{small}
 \begin{verbatim}
-S1L8:1640684316-udp-random-
-2048-20211229061449.tar.gz
+S1L20C-vwall1-20220119101508-
+multicast-random-2048-
+20220131154314.tar.gz
 \end{verbatim}
 \end{small}
 
 \noindent
-this example has been produced by the network we named ``S1L8'', booted when
-the time on our local system was 1640684316 seconds after the epoch; this
-archive contains the results for the ``udp'' method with ``random''
-scheduling and a data size of 2048MB; the run ended on December 29, 2021
-at 06:14:49 (local time of the testbed).  The actual timestamp values
-are not important per se, but together with the name we assign to the
-network they generate unique names for each run (the name has been
-folded into multiple lines to fit in the layout of the report, but
-of course it is a single string).
+this example has been produced by the network we named ``S1L20C'', booted
+on virtual wall 1 when the time on our local system was 19/Jan/2022
+at 10:15:08; this archive contains the results for the ``multicast''
+method with ``random'' scheduling and a data size of 2048MB; the run
+ended on 31/Jan/2022 at 15:43:14 (local time of the testbed).  The actual
+timestamp values are not important per se, but together with the name we
+assign to the network they generate unique names for each run (the name
+has been folded into multiple lines to fit in the layout of the report,
+but of course it is a single string).
 
-We use a database with the following columns:
+The {\tt averages} script reads the lwmon data directly and produces
+summaries as described below; however this can be slow so it uses a
+database to cache intermediate results.  This database could also
+be useful for other processing. There is a table indexing tarballs
+and two other tables for different types of cached summaries.
+
+The table indexing tarballs, ``tarballs'' has the following columns:
 
 \begin{small}
 \begin{verbatim}
-topology    varchar(255)
-boot_time   int
-experiment  varchar(255)
-schedule    varchar(255)
-datasize    int
-end_run     int
-host        varchar(255)
+id             int
+filename       varchar(256)
+filesize       int
+mtime          int
 
-timestamp   int
-name        varchar(255)
-parm        varchar(255)
-key         varchar(255)
-value       int
+topology       varchar(256)
+suffix         varchar(32)
+testbed        varchar(32)
+boot_time      int
+update_method  varchar(256)
+schedule       varchar(256)
+file_size      int
+run_time       int
+n_servers      int
+router_levels  int
+n_clients      int
 \end{verbatim}
 \end{small}
 
-The first group of columns are determined from the archive name and
-the member file names within the archive: ``host'' is the node name,
-like client5 or router0, ``topology'' is an identifier for the network
-topology, derived from the name given to the testbed, the other columns
-contain the obvious values.
+The first group of columns are the file information: ``id'' is the
+internal unique identifier used in the cache database, ``filename''
+is the tarball's filename, and ``filesize'' and ``mtime'' are provided
+by the filesystem and are used by the program to update the cached data
+if the file appears to have changed (this can happen if we run the
+program while results are still arriving from the testbed).
 
-The second group of columns are the data produced by ``lwmon'' for a
-particular experiment and node.
+The second group of columns are obtained by splitting the file name
+into its components, and interpreting the testbed name to determine
+the number of clients and routers.
 
-If the tar archives are in {\tt\textasciitilde/raw-data}, the
-``import-into-sqlite'' script extracts the data from the archives
-and imports it into a database with the appropriate schema,
-creating it if it does not exist:
+The decoded lwmon data for a particular element is accumulated in the
+``data'' table which contains the following columns:
 
 \begin{small}
 \begin{verbatim}
-$ import-into-sqlite DB.sqlite \
-  ~/raw-data/*
+tar_id         int
+dataname       varchar(256)
+count          int
+min            float
+max            float
+total          float
+square         float
 \end{verbatim}
 \end{small}
 
-The program determines if a file has already been imported and skips
-it automatically, so it's possible to just run it on the whole
-directory after new data has been produced. It relies on the
-``lwmon-to-sql'' program included with ``lwmon'', and of course
-on the sqlite database to be installed.  There is nothing requiring
-sqlite particularly, it would be possible to use other databases
-by changing the connection information in the script.
+Each data item can be present multiple times in the same tarball
+(for example, each client could contribute one element); these are
+all added together in the ``total'' column, and their squares are
+added in the ``square'' column; when selecting a tarball for
+processing, we can use this information to calculate averages and
+standard deviations.
 
-\TODO{Make DB with all experiment data available somewhere}
+Another table, ``summary'', contain information grouped by number of
+active; it has one extra column, ``n{\textunderscore}clients''.
 
-\subsection{Analysing results}
-{\em The programs described here are in the ``experiment scripts''
-repository~\cite{exp:scripts}.}
-
-A simple program extracts the data from one or more runs, given the
-data items to extract and a number of selection criteria, for update
-method, referred to as ``experiment'' due to the way things had been
-set up initially, scheduling strategy, data size and so on. These are
-specified on the command line, for example:
+The ``averages'' script produces averages from a specified subset of
+experiment runs, and also maintains the cache database.  The general
+usage is:
 
 \begin{small}
 \begin{verbatim}
-$ lookup-result DB.sqlite \
-  server:load \
-  server:totcpu \
-  server:tx \
-  experiment=multicast \
-  schedule=immediate \
-  datasize=2048 | less
+$ averages [options] DATA_NAME \
+  CACHE_DATABASE \
+  TARBALL [TARBALL]... | less
 \end{verbatim}
 \end{small}
 
 This will probably produce a lot of data, so it's best to send the output
-to a file or pipe into a pager.  The output looks like the extract in
-figure~\pref{result:example}.
-\begin{figure*}[bp]
+to a file or pipe into a pager.
+
+Currently, ``DATA{\textunderscore}NAME'' can be one of ``run-time'',
+``server-tx'' and ``server-load'' described below, and a sample output
+is shown in figures~\ref{result:example1} and~\pref{result:example2}.
+\begin{figure*}[p]
 \begin{small}
 \begin{verbatim}
-RUN: S1L64      2021-12-27 19:06:48
-     multicast  immediate   2048  2021-12-27 13:51:06
- run     num     server:load   server:totcpu   server:tx
-time   clients     server0        server0       server0
-   0         0        0.29
-   1         3        0.29          0.930             0
-   2        43        0.34          1.010             0
-   3        64        0.34          0.990             0
-   4        64        0.34          1.021             0
-   5        64        0.34          0.990             0
-   6        64        0.34          1.000             0
-   7        64        0.40          1.000          8125
-   8        64        0.40          1.010        122552
-   9        64        0.40          1.000        122596
-  10        64        0.40          0.990        122571
-  11        64        0.40          1.010        122458
-  12        64        0.45          1.000        122604
-  13        64        0.45          0.990        122547
-  14        64        0.45          1.000        122609
-  15        64        0.45          1.000        122476
-  16        64        0.45          1.000        122562
-  17        64        0.49          1.010        122612
-  18        64        0.49          0.990        122584
+$ ./bin/averages -p run-time ~/DB/summary.sqlite ~/results/S1L49F-
+UPDATE    SCHEDULE  SIZE          AVG #DATA          MIN          MAX      STD
+multicast random      32        0.502   539        0.403        0.767    0.069
+multicast random2     32        0.507   539        0.406        0.793    0.077
+multicast immediate   32        0.512   539        0.406        0.795    0.083
+tcp       random2     32        0.516   539        0.372        1.182    0.186
+tcp       random      32        0.733   539        0.372        1.970    0.381
+scp       random2     32        0.885   539        0.735        1.858    0.138
+scp       random      32        0.974   539        0.742        2.129    0.207
 ...
- 184         1        1.00          1.000        122497
- 185         1        1.00          1.000        122554
- 186         1        1.00          1.010        122609
- 187         0        1.00          0.990        122628
- 188         0        1.00          1.000        122481
- 189         0        1.00          1.000        122612
+scp       immediate 2048    15:01.874   539    14:01.121    15:31.685   12.585
+udp       immediate 2048    15:30.195   539    14:32.472    15:48.049   15.527
 \end{verbatim}
 \end{small}
 \caption{Example experiment result}
-\label{result:example}
+\label{result:example1}
+\end{figure*}
+\begin{figure*}[p]
+\begin{small}
+\begin{verbatim}
+$ ./bin/averages -p server-tx ~/DB/summary.sqlite ~/results/S1L49F-
+UPDATE    SCHEDULE  SIZE #CLIENT        AVG #DATA        MIN        MAX    STD
+scp       immediate  128      24        0.0     1        0.0        0.0      -
+tcp       immediate  128      10        0.0     1        0.0        0.0      -
+tcp       immediate  512      21        0.0     1        0.0        0.0      -
+tcp       immediate  512      31        0.0     1        0.0        0.0      -
+multicast immediate   32       2        0.0     2        0.0        0.0    0.0
+multicast immediate  128       7        0.0     2        0.0        0.0    0.0
+...
+udp       immediate  512      23      180.3     2      120.1      240.6   85.2
+udp       immediate   32      41      180.3     2      120.1      240.6   85.2
+tcp       immediate 2048      41      180.6     4      120.3      240.8   69.5
+\end{verbatim}
+\end{small}
+\caption{Example experiment result}
+\label{result:example2}
 \end{figure*}
 The program determines the number of active clients by combining information
-about client start and stop times and adds that to the table.  It can also
-produce a new database with the results by just adding {\tt out=}{\em NAME\/}
-to the command line, in which case it's useful to ask for ``all''
-available information instead of a specific list of fields:
+about client start and stop times and adds that to the table.
 
-\begin{small}
-\begin{verbatim}
-$ lookup-result DB.sqlite \
-  all \
-  experiment=multicast \
-  schedule=immediate \
-  datasize=2048 \
-  out=/tmp/summary.sqlite
-\end{verbatim}
-\end{small}
+We have currently defined three data types, but the script allows adding more
+very easily:
 
-This new database will contain different columns from the input one,
-for example there is a new ``n\_clients'', and the ``host'' has been
-replaced by a ``host\_type'' (client, server or router, rather than
-client15, router2) and can be used as input to some of the other tools
-which show summary data.  All available runs can be summarised by
-omitting the selection criteria (this will take a long time to run):
+\begin{list}{server-load}{}
+\item[run-time:]
+Total time the client required from sending the first request to server
+until it received the complete file.
+\item[server-load:]
+Server load by number of active clients; this is sampled every second
+or more often if there is a change in the number of active clients,
+and is the total number of CPU millisecond reported used divided by
+the milliseconds since the previous sample.
+\item[server-tx:]
+Data sent over the network per second; this number is sampled every
+second or more often if there is a change in the number of active
+clients, and is the number of bytes sent divided by the number of
+milliseconds since the previous sample, and further divided to
+obtain a number of megabytes per second.
+\end{list}
 
-\begin{small}
-\begin{verbatim}
-$ lookup-result DB.sqlite \
-  all out=/tmp/summary.sqlite
-\end{verbatim}
-\end{small}
-
-\TODO{Make DB with above summary.sqlite available somewhere}
-
-\TODO{get-summary}
+\TODO{Make above summary.sqlite available somewhere}
 
 \section{Important notes on repeating this experiment}
 \label{configuration}
