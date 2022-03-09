@@ -1,5 +1,42 @@
 #!/usr/bin/perl -w
 
+# read lwmon data and calculate averages etc; summarised information
+# is stored in a database for quicker re-runs when adding new results
+
+# Usage:
+# averages [options] DATA_NAME CACHE_DB REPORT_TARBALL [...]
+#
+# DATA_NAME is one of:
+#    run-time    Time taken by clients from sending first request (or
+#                starting running for multicast) to getting the
+#                complete data; averaged over all clients selected
+#    server-tx   Network data sent by servers against number of active
+#                clients (for unicast, a client is considered active
+#                between the time the server receives a request and the
+#                time it sends the last byte of data; for multicast, a
+#                client is active if it's running, that is it has started
+#                listening and has not decided it has the full data yet)
+#    server-load "immediate" server load against number of active
+#                clients; this is the fraction of CPU time actually
+#                used and is sampled every second
+#
+# CACHE_DB is the path to a sqlite database containing the cached summaries;
+# if it does not exist, it will be created
+#
+# REPORT_TARBALL is the path to a tarball produced by the experiment; all
+# data contained in all tarballs listed will be combined to form the output
+#
+# options:
+#    -a          sort by average (default)
+#    -c          do not produce output, just update the cache
+#    -m          sort by maximum value
+#    -n          sort by experiment name (e.g. multicast,immediate,32)
+#    -p          interpret each REPORT_TARBALL as a "prefix"; similar to
+#                adding a "*" to the end, but exclude test and incomplete
+#                result files
+#    -r          show raw data, i.e. 144 seconds rather than 2:24
+#    -s          sort by data size, then experiment name
+
 use strict;
 use DBI;
 use FindBin '$Bin';
@@ -9,10 +46,11 @@ use lib "$Bin/../perl";
 use Experiment;
 use Lwmon;
 
-my $usage = "Usage: $0 [-acmnr] DATA_NAME CACHE_DB REPORT_TARBALL [...]\n";
+my $usage = "Usage: $0 [-acmnprs] DATA_NAME CACHE_DB REPORT_TARBALL [...]\n";
 my $raw_data = 0;
 my $sort_num = 1;
 my $sort_index = 1;
+my $prefix = 0;
 while (@ARGV && $ARGV[0] =~ /^-+(.*)$/) {
     my $opts = $1;
     shift @ARGV;
@@ -23,6 +61,7 @@ while (@ARGV && $ARGV[0] =~ /^-+(.*)$/) {
 	$opt eq 'c' and $sort_num = undef, next;
 	$opt eq 'm' and $sort_num = 1, $sort_index = 4, next;
 	$opt eq 'n' and $sort_num = 0, $sort_index = 0, next;
+	$opt eq 'p' and $prefix = 1, next;
 	$opt eq 'r' and $raw_data = 1, next;
 	$opt eq 's' and $sort_num = 1, $sort_index = 6, next;
 	die $usage;
@@ -220,166 +259,190 @@ my $dir;
 END { defined $dir and remove_tree($dir); undef $dir; }
 
 my %counts = ();
-for my $tb (@ARGV) {
-    stat $tb or die "$tb: $!\n";
-    my $tfilesize = (stat _)[7];
-    my $tmtime = (stat _)[9];
-    (my $tfilename = $tb) =~ s!^.*/!!;
-    my %tar_info = parse_tarball_name($tfilename, $tb);
-    my $title = sprintf "%-9s %-9s %4d", @tar_info{qw(update schedule file_size)};
-    my $size = $tar_info{file_size};
-    # check if we already have this tarball and it is up to date
-    my ($id, $cfilesize, $cmtime) = $dbh->selectrow_array($find_tarball, {}, $tfilename);
-    if (! defined $cmtime || $cmtime != $tmtime || $cfilesize != $tfilesize) {
-	if (defined $cmtime) {
-	    $delete_tarball->execute($tfilename, $id);
-	    # we need to delete this tarball from all data tables which exists,
-	    # not just for the one we are using now
-	    for my $dd (@delete_data) {
-		$dd->execute($tfilename, $id);
-	    }
+for my $tbp (@ARGV) {
+    my @tbs;
+    if ($prefix) {
+	# determine if there's a directory
+	my ($dir, $name);
+	if ($tbp =~ m:^(.*)/([^/]*)$:) {
+	    ($dir, $name) = ($1, $2);
 	} else {
-	    ($id) = 1 + ($dbh->selectrow_array($max_tar_id, {}) || 0);
+	    ($dir, $name) = ('.', $tbp);
 	}
-	$add_tarball->execute($id, $tfilename, $tfilesize, $tmtime,
-			      @tar_info{qw(topology suffix testbed boot_time
-					update schedule file_size run_time
-					n_servers router_levels n_clients)});
+	my $re = qr/^\Q$name\E/;
+	opendir (TBDIR, $dir) or die "$dir: $!\n";
+	while (defined (my $ent = readdir TBDIR)) {
+	    $ent =~ $re or next;
+	    $ent =~ /\.(?:partial|test)\./ and next;
+	    stat "$dir/$ent" or die "$dir/$ent $!\n";
+	    -f _ and push @tbs, "$dir/$ent";
+	}
+	closedir TBDIR;
+	@tbs or die "$tbp did not match any file\n";
+    } else {
+	@tbs = ($tbp);
     }
-    # check if data is already cached
-    my @data = @{ $dbh->selectall_arrayref($get_data, {}, $id, $dataname) };
-    if (! @data) {
-	# not cached, we need to collect it
-	$dir = tempdir() or die "tmpdir: $!\n";
-	my $ptb = $tb =~ m!^/! ? $tb : "./$tb";
-	run_cmd("tar $tb", 'tar', 'xf', $ptb, '-C', $dir);
-	defined $sort_num or print "$tfilename\n";
-	my @clients;
-	if ($count_clients) {
-	    # for multicast, the server does now know how many clients
-	    # there are, only if there are any or not; so we need client
-	    # logs to know when they start/end (this is less precise
-	    # than server logs); for unicast we use the server log
-	    my ($regex, $request, $done);
-	    if ($tar_info{is_multicast}) {
-		$regex = qr/^client\d+\./;
-		$request = 'start';
-		$done = 'end';
+    for my $tb (@tbs) {
+	stat $tb or die "$tb: $!\n";
+	my $tfilesize = (stat _)[7];
+	my $tmtime = (stat _)[9];
+	(my $tfilename = $tb) =~ s!^.*/!!;
+	my %tar_info = parse_tarball_name($tfilename, $tb);
+	my $title = sprintf "%-9s %-9s %4d", @tar_info{qw(update schedule file_size)};
+	my $size = $tar_info{file_size};
+	# check if we already have this tarball and it is up to date
+	my ($id, $cfilesize, $cmtime) = $dbh->selectrow_array($find_tarball, {}, $tfilename);
+	if (! defined $cmtime || $cmtime != $tmtime || $cfilesize != $tfilesize) {
+	    if (defined $cmtime) {
+		$delete_tarball->execute($tfilename, $id);
+		# we need to delete this tarball from all data tables which exists,
+		# not just for the one we are using now
+		for my $dd (@delete_data) {
+		    $dd->execute($tfilename, $id);
+		}
 	    } else {
-		$regex = qr/^server\d+\./;
-		$request = 'request';
-		$done = 'done';
+		($id) = 1 + ($dbh->selectrow_array($max_tar_id, {}) || 0);
 	    }
-	    my %change;
+	    $add_tarball->execute($id, $tfilename, $tfilesize, $tmtime,
+				  @tar_info{qw(topology suffix testbed boot_time
+					    update schedule file_size run_time
+					    n_servers router_levels n_clients)});
+	}
+	# check if data is already cached
+	my @data = @{ $dbh->selectall_arrayref($get_data, {}, $id, $dataname) };
+	if (! @data) {
+	    # not cached, we need to collect it
+	    $dir = tempdir() or die "tmpdir: $!\n";
+	    my $ptb = $tb =~ m!^/! ? $tb : "./$tb";
+	    run_cmd("tar $tb", 'tar', 'xf', $ptb, '-C', $dir);
+	    defined $sort_num or print "$tfilename\n";
+	    my @clients;
+	    if ($count_clients) {
+		# for multicast, the server does now know how many clients
+		# there are, only if there are any or not; so we need client
+		# logs to know when they start/end (this is less precise
+		# than server logs); for unicast we use the server log
+		my ($regex, $request, $done);
+		if ($tar_info{is_multicast}) {
+		    $regex = qr/^client\d+\./;
+		    $request = 'start';
+		    $done = 'end';
+		} else {
+		    $regex = qr/^server\d+\./;
+		    $request = 'request';
+		    $done = 'done';
+		}
+		my %change;
+		opendir(DIR, $dir) or die "$dir: $!\n";
+		while (defined (my $ent = readdir DIR)) {
+		    $ent =~ $regex or next;
+		    my $lwmon = Lwmon->new("$dir/$ent");
+		    my ($start, $end) = (0, 0);
+		    while (defined (my $packet = $lwmon->nextrecord({ 65534 => undef }))) {
+			for my $item (@{$packet->{data}}) {
+			    my $type = $item->{type};
+			    $type == 65534 or next;
+			    exists $item->{parm} or next;
+			    my $diff;
+			    if ($item->{parm} eq $request) {
+				$start && $tar_info{is_multicast}
+				    and die "$tb ($ent): multiple $request loga\n";
+				$start++;
+				$diff = 1;
+			    } elsif ($item->{parm} eq $done) {
+				$start > $end
+				    or die "$tb ($ent): $done log without $request\n";
+				$end++;
+				$diff = -1;
+			    } else {
+				next;
+			    }
+			    my $ts = $packet->{timestamp};
+			    if (exists $change{$ts}) {
+				$change{$ts} += $diff;
+			    } else {
+				$change{$ts} = $diff;
+			    }
+			}
+		    }
+		}
+		closedir DIR;
+		@clients = map { [$_ => $change{$_}] } sort { $a <=> $b } keys %change;
+	    }
+	    my %totals;
+	    my ($total, $square, $count, $min, $max) = (0, 0, 0);
+	    my $filter = $tar_info{is_multicast} ? $types : $unicast_filter;
 	    opendir(DIR, $dir) or die "$dir: $!\n";
 	    while (defined (my $ent = readdir DIR)) {
-		$ent =~ $regex or next;
+		$ent =~ $file_regex or next;
 		my $lwmon = Lwmon->new("$dir/$ent");
-		my ($start, $end) = (0, 0);
-		while (defined (my $packet = $lwmon->nextrecord({ 65534 => undef }))) {
+		my %data;
+		$init_code and $init_code->(\%data);
+		my $lastr;
+		my $n_clients = 0;
+		while (defined (my $packet = $lwmon->nextrecord($filter))) {
+		    # first process any data logs - they refer to some interval ending
+		    # at the current message, so we want to process them now before
+		    # figuring out any change in number of active clients
 		    for my $item (@{$packet->{data}}) {
 			my $type = $item->{type};
-			$type == 65534 or next;
-			exists $item->{parm} or next;
-			my $diff;
-			if ($item->{parm} eq $request) {
-			    $start && $tar_info{is_multicast}
-				and die "$tb ($ent): multiple $request loga\n";
-			    $start++;
-			    $diff = 1;
-			} elsif ($item->{parm} eq $done) {
-			    $start > $end
-				or die "$tb ($ent): $done log without $request\n";
-			    $end++;
-			    $diff = -1;
-			} else {
-			    next;
+			exists $types->{$type} or next;
+			my $code = $types->{$type};
+			if (ref($code) eq 'HASH') {
+			    exists $code->{$item->{name}} or next;
+			    $code = $code->{$item->{name}};
 			}
-			my $ts = $packet->{timestamp};
-			if (exists $change{$ts}) {
-			    $change{$ts} += $diff;
-			} else {
-			    $change{$ts} = $diff;
-			}
+			$code->($tb, $ent, \%data, $packet, $item, $n_clients);
+		    }
+		    # and if we are counting clients, apply any changes
+		    $count_clients or next;
+		    my $ts = $packet->{timestamp};
+		    # we allow the change to happen a millisecond later to include
+		    # the "immediate" round of measures... and we implement that
+		    # by saying $ts > ... rather than $ts >= ...
+		    while (@clients && $ts > $clients[0][0]) {
+			$n_clients += $clients[0][1];
+			shift @clients;
+		    }
+		}
+		for my $tp ($finish_code->($tb, $ent, \%data)) {
+		    my ($count, $total, $square, $min, $max, $nc) = @$tp;
+		    if (exists $totals{$nc}) {
+			$totals{$nc}[0] += $count;
+			$totals{$nc}[1] += $total;
+			$totals{$nc}[2] += $square;
+			$totals{$nc}[3] > $min and $totals{$nc}[3] = $min;
+			$totals{$nc}[4] < $max and $totals{$nc}[4] = $max;
+		    } else {
+			$totals{$nc} = [$count, $total, $square, $min, $max];
+			$count_clients and push @{$totals{$nc}}, $nc;
 		    }
 		}
 	    }
 	    closedir DIR;
-	    @clients = map { [$_ => $change{$_}] } sort { $a <=> $b } keys %change;
-	}
-	my %totals;
-	my ($total, $square, $count, $min, $max) = (0, 0, 0);
-	my $filter = $tar_info{is_multicast} ? $types : $unicast_filter;
-	opendir(DIR, $dir) or die "$dir: $!\n";
-	while (defined (my $ent = readdir DIR)) {
-	    $ent =~ $file_regex or next;
-	    my $lwmon = Lwmon->new("$dir/$ent");
-	    my %data;
-	    $init_code and $init_code->(\%data);
-	    my $lastr;
-	    my $n_clients = 0;
-	    while (defined (my $packet = $lwmon->nextrecord($filter))) {
-		# first process any data logs - they refer to some interval ending
-		# at the current message, so we want to process them now before
-		# figuring out any change in number of active clients
-		for my $item (@{$packet->{data}}) {
-		    my $type = $item->{type};
-		    exists $types->{$type} or next;
-		    my $code = $types->{$type};
-		    if (ref($code) eq 'HASH') {
-			exists $code->{$item->{name}} or next;
-			$code = $code->{$item->{name}};
-		    }
-		    $code->($tb, $ent, \%data, $packet, $item, $n_clients);
-		}
-		# and if we are counting clients, apply any changes
-		$count_clients or next;
-		my $ts = $packet->{timestamp};
-		# we allow the change to happen a millisecond later to include
-		# the "immediate" round of measures... and we implement that
-		# by saying $ts > ... rather than $ts >= ...
-		while (@clients && $ts > $clients[0][0]) {
-		    $n_clients += $clients[0][1];
-		    shift @clients;
-		}
+	    scalar(keys %totals) or die "$tb: no data\n";
+	    for my $nc (keys %totals) {
+		$add_data->execute($id, $dataname, @{$totals{$nc}});
+		push @data, $totals{$nc};
 	    }
-	    for my $tp ($finish_code->($tb, $ent, \%data)) {
-		my ($count, $total, $square, $min, $max, $nc) = @$tp;
-		if (exists $totals{$nc}) {
-		    $totals{$nc}[0] += $count;
-		    $totals{$nc}[1] += $total;
-		    $totals{$nc}[2] += $square;
-		    $totals{$nc}[3] > $min and $totals{$nc}[3] = $min;
-		    $totals{$nc}[4] < $max and $totals{$nc}[4] = $max;
-		} else {
-		    $totals{$nc} = [$count, $total, $square, $min, $max];
-		    $count_clients and push @{$totals{$nc}}, $nc;
-		}
+	    remove_tree($dir);
+	    undef $dir;
+	}
+	defined $sort_num or next;
+	exists $counts{$title} or $counts{$title} = {};
+	for my $data (@data) {
+	    my $n_clients = $data->[5] || 0;
+	    if (exists $counts{$title}{$n_clients}) {
+		$counts{$title}{$n_clients}[1] += $data->[0];
+		$counts{$title}{$n_clients}[2] += $data->[1];
+		$counts{$title}{$n_clients}[3] += $data->[2];
+		$counts{$title}{$n_clients}[4] > $data->[3]
+		    and $counts{$title}{$n_clients}[4] = $data->[3];
+		$counts{$title}{$n_clients}[5] < $data->[4]
+		    and $counts{$title}{$n_clients}[5] = $data->[4];
+	    } else {
+		$counts{$title}{$n_clients} = [$size, @$data];
 	    }
-	}
-	closedir DIR;
-	scalar(keys %totals) or die "$tb: no data\n";
-	for my $nc (keys %totals) {
-	    $add_data->execute($id, $dataname, @{$totals{$nc}});
-	    push @data, $totals{$nc};
-	}
-	remove_tree($dir);
-	undef $dir;
-    }
-    defined $sort_num or next;
-    exists $counts{$title} or $counts{$title} = {};
-    for my $data (@data) {
-	my $n_clients = $data->[5] || 0;
-	if (exists $counts{$title}{$n_clients}) {
-	    $counts{$title}{$n_clients}[1] += $data->[0];
-	    $counts{$title}{$n_clients}[2] += $data->[1];
-	    $counts{$title}{$n_clients}[3] += $data->[2];
-	    $counts{$title}{$n_clients}[4] > $data->[3]
-		and $counts{$title}{$n_clients}[4] = $data->[3];
-	    $counts{$title}{$n_clients}[5] < $data->[4]
-		and $counts{$title}{$n_clients}[5] = $data->[4];
-	} else {
-	    $counts{$title}{$n_clients} = [$size, @$data];
 	}
     }
 }
