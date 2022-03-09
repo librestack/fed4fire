@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# extract individual lwmon files from tarballs; the files are
+# renamed while extracting to add testbed name etc
+
 [ $# -ge 3 ] || { echo "Usage: $0 SRC_DIR DST_DIR PATTERN [PATTERN]" >&2; exit 1; }
 SRC_DIR="$1"; shift
 DST_DIR="$1"; shift
