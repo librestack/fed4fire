@@ -29,6 +29,7 @@
 # options:
 #    -a          sort by average (default)
 #    -c          do not produce output, just update the cache
+#    -k          sort by number of active clients (where applicable)
 #    -m          sort by maximum value
 #    -n          sort by experiment name (e.g. multicast,immediate,32)
 #    -p          interpret each REPORT_TARBALL as a "prefix"; similar to
@@ -36,6 +37,9 @@
 #                result files
 #    -r          show raw data, i.e. 144 seconds rather than 2:24
 #    -s          sort by data size, then experiment name
+#    -H          produce HTML table
+#    -L          produce a LaTeX tabular environment
+#    -T          produce pre-formatted text (default)
 
 use strict;
 use DBI;
@@ -51,6 +55,7 @@ my $raw_data = 0;
 my $sort_num = 1;
 my $sort_index = 1;
 my $prefix = 0;
+my $output = 'T';
 while (@ARGV && $ARGV[0] =~ /^-+(.*)$/) {
     my $opts = $1;
     shift @ARGV;
@@ -59,11 +64,13 @@ while (@ARGV && $ARGV[0] =~ /^-+(.*)$/) {
 	my $opt = $1;
 	$opt eq 'a' and $sort_num = 1, $sort_index = 1, next;
 	$opt eq 'c' and $sort_num = undef, next;
+	$opt eq 'k' and $sort_num = 1, $sort_index = 7, next;
 	$opt eq 'm' and $sort_num = 1, $sort_index = 4, next;
 	$opt eq 'n' and $sort_num = 0, $sort_index = 0, next;
 	$opt eq 'p' and $prefix = 1, next;
 	$opt eq 'r' and $raw_data = 1, next;
 	$opt eq 's' and $sort_num = 1, $sort_index = 6, next;
+	$opt =~ /^[HLT]$/ and $output = $opt, next;
 	die $usage;
     }
 }
@@ -289,7 +296,18 @@ for my $tbp (@ARGV) {
 	my $tmtime = (stat _)[9];
 	(my $tfilename = $tb) =~ s!^.*/!!;
 	my %tar_info = parse_tarball_name($tfilename, $tb);
-	my $title = sprintf "%-9s %-9s %4d", @tar_info{qw(update schedule file_size)};
+	my @title = @tar_info{qw(update schedule file_size)};
+	my $title = sprintf "%-9s %-9s %4d", @title;
+	my $prntitle;
+	if ($output eq 'H') {
+	    $prntitle = "<td align=\"left\">$title[0]</td>\n"
+		      . "<td align=\"left\">$title[1]</td>\n"
+		      . "<td align=\"right\">$title[2]</td>\n";
+	} elsif ($output eq 'L') {
+	    $prntitle = join(' & ', @title);
+	} else {
+	    $prntitle = $title;
+	}
 	my $size = $tar_info{file_size};
 	# check if we already have this tarball and it is up to date
 	my ($id, $cfilesize, $cmtime) = $dbh->selectrow_array($find_tarball, {}, $tfilename);
@@ -442,7 +460,7 @@ for my $tbp (@ARGV) {
 		$counts{$title}{$n_clients}[5] < $data->[4]
 		    and $counts{$title}{$n_clients}[5] = $data->[4];
 	    } else {
-		$counts{$title}{$n_clients} = [$size, @$data];
+		$counts{$title}{$n_clients} = [$size, @{$data}[0..4], $prntitle];
 	    }
 	}
     }
@@ -450,11 +468,11 @@ for my $tbp (@ARGV) {
 defined $sort_num or exit 0;
 
 my $str_std = '%' . length(sprintf $fmt_std, 0) . 's';
-my $no_std = sprintf $str_std, '-';
+my $no_std = $output eq 'T' ? sprintf $str_std, '-' : '-';
 my @results;
 for my $title (keys %counts) {
     for my $n_clients (sort { $a <=> $b } keys %{$counts{$title}}) {
-	my ($size, $count, $total, $square, $min, $max) = @{$counts{$title}{$n_clients}};
+	my ($size, $count, $total, $square, $min, $max, $prntitle) = @{$counts{$title}{$n_clients}};
 	my $avg = $total / $count;
 	my $std;
 	if ($count > 1) {
@@ -464,18 +482,48 @@ for my $title (keys %counts) {
 	    $var < 0 && $var > -1e-10 and $var = 0;
 	    $std = sqrt($var);
 	    $std = sprintf $fmt_std, $std;
+	    $output eq 'T' or $std =~ s/^\s+//;
 	} else {
 	    $std = $no_std;
 	}
-	my $tt = $title;
-	$count_clients and $tt .= sprintf "%8d", $n_clients;
-	push @results, [$tt, $avg, $count, $min, $max, $std, $size];
+	my $sort_title = $title;
+	if ($count_clients) {
+	    if ($output eq 'H') {
+		$prntitle .= "<td align=\"right\">$n_clients</td>\n";
+	    } elsif ($output eq 'L') {
+		$prntitle .= " & $n_clients";
+	    } else {
+		$prntitle .= sprintf "%8d", $n_clients;
+	    }
+	    $sort_title .= sprintf "%8d", $n_clients;
+	}
+	push @results, [$sort_title, $avg, $count, $min, $max, $std, $size, $n_clients, $prntitle];
     }
 }
 
 my $str_data = '%' . length(sprintf $fmt_whole, 0) . 's';
-printf "UPDATE    SCHEDULE  SIZE%s $str_data #DATA $str_data $str_data $str_std\n",
-       ($count_clients ? ' #CLIENT' : ''), qw(AVG MIN MAX STD);
+if ($output eq 'H') {
+    print "<table>\n";
+    print "<tr>\n";
+    for my $s (qw(UPDATE SCHEDULE)) {
+	print "<th align=\"left\">$s</th>\n";
+    }
+    print "<th align=\"right\">SIZE</th>\n";
+    $count_clients and print "<th align=\"right\">#CLIENT</th>\n";
+    for my $s ('#DATA', qw(AVG MIN MAX STD)) {
+	print "<th align=\"right\">$s</th>\n";
+    }
+} elsif ($output eq 'L') {
+    print "\\begin{tabular}{|l|l|r", $count_clients ? '|r' : '', "|r|r|r|r|r|}\n";
+    print "\\hline\n";
+    print 'UPDATE & SCHEDULE & SIZE', $count_clients ? ' & \\#CLIENTS' : '',
+	  " & AVG & \\#DATA & MIN & MAX & STD\\\\\n";
+    print "\\hline\n";
+} else {
+    printf "UPDATE    SCHEDULE  SIZE%s $str_data #DATA $str_data $str_data $str_std\n",
+	   ($count_clients ? ' #CLIENT' : ''), qw(AVG MIN MAX STD);
+}
+
 my @sorted;
 if ($sort_num) {
     @sorted = sort { $a->[$sort_index] <=> $b->[$sort_index] ||
@@ -485,25 +533,52 @@ if ($sort_num) {
 		     $a->[0] cmp $b->[0] } @results;
 }
 for my $result (@sorted) {
-    my ($title, $avg, $count, $min, $max, $std) = @$result;
+    my ($sort_title, $avg, $count, $min, $max, $std, $size, $n_clients, $prntitle) = @$result;
     my $time = fmt_data($avg);
-    $count = sprintf "%5d", $count;
+    $output eq 'T' and $count = sprintf "%5d", $count;
     $min = fmt_data($min);
     $max = fmt_data($max);
-    print "$title $time $count $min $max $std\n";
+    if ($output eq 'H') {
+	print "<tr>\n";
+	print $prntitle;
+	for my $s ($time, $count, $min, $max, $std) {
+	    print "<td align=\"right\">$s</td>\n";
+	}
+	print "</tr>\n";
+    } elsif ($output eq 'L') {
+	print "$prntitle & $time & $count & $min & $max & $std\\\\\n";
+    } else {
+	print "$prntitle $time $count $min $max $std\n";
+    }
 }
 
+if ($output eq 'H') {
+    print "</tr>\n";
+    print "</table>\n";
+} elsif ($output eq 'L') {
+    print "\\hline\n";
+    print "\\end{tabular}\n";
+}
 $dbh->disconnect();
 
 sub fmt_data {
     my ($sec) = @_;
-    $raw_data || ! $is_time || $sec < 60 and return sprintf $fmt_whole, $sec;
-    my $m = int($sec / 60);
-    $sec = sprintf $fmt_seconds, $sec - $m * 60;
-    if ($m < 60) {
-	return sprintf "%5d:%s", $m, $sec;
+    if ($raw_data || ! $is_time || $sec < 60) {
+	my $ret = sprintf $fmt_whole, $sec;
+	$output eq 'T' and return $ret;
+	$ret =~ s/^\s+//;
+	return $ret;
     } else {
-	return sprintf "%2d:%02d:%s", int($m / 60), $m % 60, $sec;
+	my $m = int($sec / 60);
+	$sec = sprintf $fmt_seconds, $sec - $m * 60;
+	my $ret;
+	if ($m < 60) {
+	    $ret = "$m\:$sec";
+	} else {
+	    $ret = sprintf  "%d:%02d:%s", int($m / 60), $m % 60, $sec;
+	}
+	$output eq 'T' or return $ret;
+	return sprintf $str_data, $ret;
     }
 }
 
