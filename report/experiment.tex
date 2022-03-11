@@ -606,17 +606,29 @@ with any network topology in table~\pref{runtime:40:all}.
 \TODO{Show graphs}
 
 These tables show a slightly different story, with multicast seeming to
-have became slower compared to the single LAN case, with unicast seeming
-to be unaffected by the presence of routers.  There are two sources for
-this extra time: MLDv2 works on a LAN, so the routers need to forward
-this information before the servers know they need to start sending; and
-once the multicast data starts flowing, the kernel will need to query
-a routing daemon to know what to do with it.  However we can still see
-that multicast remains unaffected by scheduling, retaining the advantage
-already identified in the single-LAN case.  And we still expect larger
-experiments to show this difference between unicast and multicast more
-clearly. We will return to the issue of routing later when looking at
-router resource usage.
+have became slower compared to the single LAN case, and in fact random
+scheduling is now visibly worse than immediate; while unicast seems
+to be unaffected by the presence of routers.  However, the overall effect
+of scheduling on multicast is still less than on unicast.
+
+There are two sources for the extra time taken by the multicast update.
+MLDv2 works on a LAN, so the routers need to forward this information
+before the servers know they need to start sending. And once the multicast
+data starts flowing, the kernel will need to query a routing daemon
+to know what to do with it. Since this extra delay is introduced
+when a client starts up, it is more visible with random scheduling:
+with immediate, whichever client happens to be fastest at starting up
+will see the delay while the rest don't need to.  We will return to the
+issue of routing later when looking at router resource usage.
+
+Extrapolating again from the data, we expect that increasing the number
+of clients will show that unicast continues to become slower when requests
+overlap, while multicast might show the opposite effect: as more and more
+clients send requests, there will be more overlap even in the case of random
+scheduling, and this would reduce the overall delay introduced by routing.
+It may therefore happen that multicast (with random scheduling) becomes slightly
+faster by increasing the number of clients!  Obviously, a future experiment
+will need to look into this.
 
 \subsection{Server resources}
 
