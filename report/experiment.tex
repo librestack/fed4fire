@@ -530,7 +530,18 @@ we ran and for each data size; also showing averages over all networks
 with the same number of clients, and over all experiments.
 
 An example data, collected timings for all single LAN experiments with
-40 clients, is shown in table~\pref{runtime:40:single}.
+20 clients, is shown in table~\pref{runtime:20:single}, and with
+40 clients in table~\pref{runtime:40:single}.
+\begin{table*}[p]
+\vskip -6ex
+\begin{small}
+\begin{center}
+\input run-time-20-single
+\end{center}
+\end{small}
+\caption{Run time averaged on all 20-clients single LAN experiments}
+\label{runtime:20:single}
+\end{table*}
 \begin{table*}[p]
 \vskip -6ex
 \begin{small}
@@ -577,9 +588,20 @@ environmental and economical costs; multicast on the other hand
 would continue to be considerate on resources, with any scheduling
 strategy.
 
-Moving to a different network topology, table~\pref{runtime:40:lans}
-shows the same data collected from experiments with 3 levels of routers
-(and 10 clients per LAN, so again 40 clients in total).
+Moving to a different network topology, tables~\pref{runtime:20:lans}
+and~\pref{runtime:40:lans} show the same data collected from experiments
+with 3 levels of routers and with 20 and 40 nodes respectively
+(arranged as 5 and 10 clients per LAN, with 4 client LANs).
+\begin{table*}[p]
+\vskip -6ex
+\begin{small}
+\begin{center}
+\input run-time-20-lans
+\end{center}
+\end{small}
+\caption{Run time averaged on all 20-clients multi-LAN experiments}
+\label{runtime:20:lans}
+\end{table*}
 \begin{table*}[p]
 \vskip -6ex
 \begin{small}
@@ -590,26 +612,14 @@ shows the same data collected from experiments with 3 levels of routers
 \caption{Run time averaged on all 40-clients multi-LAN experiments}
 \label{runtime:40:lans}
 \end{table*}
-For comparison, we also collect the data for all 40-client experiments
-with any network topology in table~\pref{runtime:40:all}.
-\begin{table*}[p]
-\vskip -6ex
-\begin{small}
-\begin{center}
-\input run-time-40-all
-\end{center}
-\end{small}
-\caption{Run time averaged on all 40-clients experiments}
-\label{runtime:40:all}
-\end{table*}
 
 \TODO{Show graphs}
 
-These tables show a slightly different story, with multicast seeming to
-have became slower compared to the single LAN case, and in fact random
-scheduling is now visibly worse than immediate; while unicast seems
-to be unaffected by the presence of routers.  However, the overall effect
-of scheduling on multicast is still less than on unicast.
+These tables show a different story, with multicast seeming to have became
+slower compared to the single LAN case, and in fact random scheduling is
+now visibly worse than immediate; while unicast seems to be unaffected
+by the presence of routers.  However, the overall effect of scheduling
+on multicast is still less than on unicast.
 
 There are two sources for the extra time taken by the multicast update.
 MLDv2 works on a LAN, so the routers need to forward this information
@@ -626,9 +636,7 @@ of clients will show that unicast continues to become slower when requests
 overlap, while multicast might show the opposite effect: as more and more
 clients send requests, there will be more overlap even in the case of random
 scheduling, and this would reduce the overall delay introduced by routing.
-It may therefore happen that multicast (with random scheduling) becomes slightly
-faster by increasing the number of clients!  Obviously, a future experiment
-will need to look into this.
+A future experiment will need to look into this.
 
 \subsection{Server resources}
 
