@@ -563,13 +563,8 @@ requests competing for the available network bandwidth, while multicast
 sends a single stream; random scheduling reduces the overlap between
 clients compared to immediate, and so results in the client requiring
 less time to obtain the update, and random2 reduces the overlap even
-more with the corresponding result in terms of speed.
-
-Note that servers in the multicast experiment don't just send data
-all the time, they use MLDv2 (Multicast Listener Discovery version
-2)~\cite{rfc:3810} and they only start sending when the first client
-starts up successfully.  This introduces a slight delay but it will
-be an important point for future experiments.
+more with the corresponding result in terms of speed.  We will return
+to this point later when analysing server resource usage.
 
 Extrapolating from this (and hoping to confirm this with a future much
 larger future experiment), multicast would remain largely unaffected
@@ -613,16 +608,21 @@ with any network topology in table~\pref{runtime:40:all}.
 These tables show a slightly different story, with multicast seeming to
 have became slower compared to the single LAN case, with unicast seeming
 to be unaffected by the presence of routers.  There are two sources for
-this extra delay: MLDv2, mentioned in the single-LAN results, works
-on a LAN, so the routers need to forward this information before the
-servers know they need to start sending; and once the multicast data
-starts flowing, the kernel will need to query a routing daemon to know
-what to do with it.  However we can still see that multicast remains
-unaffected by scheduling, retaining the advantage already identified
-in the single-LAN case.  And we still expect larger experiments to show
-this difference between unicast and multicast more clearly.
+this extra time: MLDv2 works on a LAN, so the routers need to forward
+this information before the servers know they need to start sending; and
+once the multicast data starts flowing, the kernel will need to query
+a routing daemon to know what to do with it.  However we can still see
+that multicast remains unaffected by scheduling, retaining the advantage
+already identified in the single-LAN case.  And we still expect larger
+experiments to show this difference between unicast and multicast more
+clearly. We will return to the issue of routing later when looking at
+router resource usage.
 
 \subsection{Server resources}
+
+\TODO{Show tables and graphs, and draw conclusions}
+
+\subsection{Router resources}
 
 \TODO{Show tables and graphs, and draw conclusions}
 
