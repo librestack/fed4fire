@@ -529,9 +529,9 @@ to obtain the software update, showing separate averages for each network
 we ran and for each data size; also showing averages over all networks
 with the same number of clients, and over all experiments.
 
-An example data, collected timings for all single LAN experiments with
-20 clients, is shown in table~\pref{runtime:20:single}, and with
-40 clients in table~\pref{runtime:40:single}.
+Table~\pref{runtime:20:single} and the following tables show three
+representative set of results for single LAN experiments with 20,
+40 and 50 clients respectively.
 \begin{table*}[p]
 \vskip -6ex
 \begin{small}
@@ -552,10 +552,20 @@ An example data, collected timings for all single LAN experiments with
 \caption{Run time averaged on all 40-clients single LAN experiments}
 \label{runtime:40:single}
 \end{table*}
+\begin{table*}[p]
+\vskip -6ex
+\begin{small}
+\begin{center}
+\input run-time-50-single
+\end{center}
+\end{small}
+\caption{Run time averaged on all 50-clients single LAN experiments}
+\label{runtime:50:single}
+\end{table*}
 Because of the way the number of clients has an effect on (unicast)
 servers, we do not average over all experiments, but only over experiments
-with the same number of clients. Similar tables for all possible
-number of clients are available in the online data~\cite{data},
+with the same number of clients. The complete set of tables for all
+the experiment sizes we have ran are available in the online data~\cite{data},
 and the appendix describes how to generate these and other tables
 from the raw data, also available online.
 
@@ -640,7 +650,93 @@ A future experiment will need to look into this.
 
 \subsection{Server resources}
 
-\TODO{Show tables and graphs, and draw conclusions}
+Table~\pref{tx:multicast} and the following three tables show the data
+sent by the server for each number of active clients, the four tables
+showing respectively multicast, scp, tcp and udp; this is averaged
+over all the experiments we ran with file size 2GB and schedule immediate,
+and is measured in megabytes per second.
+\begin{table*}[p]
+\vskip -16ex
+\begin{small}
+\begin{center}
+\input tx-multicast
+\end{center}
+\end{small}
+\caption{Server data transmitted per number of active clients: multicast}
+\label{tx:multicast}
+\end{table*}
+\begin{table*}[p]
+\vskip -16ex
+\begin{small}
+\begin{center}
+\input tx-scp
+\end{center}
+\end{small}
+\caption{Server data transmitted per number of active clients: scp}
+\label{tx:scp}
+\end{table*}
+\begin{table*}[p]
+\vskip -16ex
+\begin{small}
+\begin{center}
+\input tx-tcp
+\end{center}
+\end{small}
+\caption{Server data transmitted per number of active clients: tcp}
+\label{tx:tcp}
+\end{table*}
+\begin{table*}[p]
+\vskip -16ex
+\begin{small}
+\begin{center}
+\input tx-udp
+\end{center}
+\end{small}
+\caption{Server data transmitted per number of active clients: udp}
+\label{tx:udp}
+\end{table*}
+
+By active client we mean a client which is in the middle of obtaining
+the file: for unicast, this is determined by the server logging when it
+receives a request, and also when it has finished sending the reply;
+for multicast, this is obtained by comparing the client start and end
+timestamps, which is less precise but the information is not known
+directly by the server.
+
+\TODO{Show graphs}
+
+Note that the udp table has been truncated to fit in the page:
+the full table is available with the online data~\cite{data}.
+The reason the table is longer than the other is due to the effect
+of packet loss and retransmission requests, where the server often
+sees a retransmission request from a client before it has logged the
+end of the previous request, resulting in the appearance of more
+active clients than there actually exist.  In a future experiment
+wil might add a delay on the client before requesting retransmissions
+to avoid this issue.  However, this does not change the substance
+of this discussion.
+
+On the first (multicast) table, we observe how the single data stream
+sent by the server is essentially saturating the network card at all
+times. There is no dependency on the number of clients, apart from
+a lower value for ``no clients'' due to the server not sending if it
+knows that there are no listeners.
+
+The remaining tables (the various unicast updates) surprised us
+a bit.  We expected to see the network constantly saturated as all
+streams are competing for it, except of course when there are no
+active clients, in which case the server would not send anything.
+Instead, it appears that the server isn't always saturating the network
+when sending to multiple clients, and that explains how some testbeds
+seemed to take even longer than expected to complete the file copy.
+We can only explain this by assuming that the server has been slowed
+down by disk access time: this is not seen on multicast as the file
+is read sequentially from start to end, in a single thread, while for
+unicast each request may be reading different parts of the file.
+We are still surprised that kernel caching has not eliminated this.
+A future experiment will attempt to measure I/O data rates as well.
+
+\TODO{server load}
 
 \subsection{Router resources}
 
