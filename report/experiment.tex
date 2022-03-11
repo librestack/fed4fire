@@ -1,4 +1,4 @@
-\documentclass[a4paper,12pt,twocolumn]{article}
+\documentclass[a4paper,11pt,twocolumn]{article}
 
 \usepackage{ifpdf}
 
@@ -7,7 +7,7 @@
 
 \title{Comparing performance of IPv6 multicast and unicast for software updates}
 \author{Claudio Calvelli}
-\date{Draft 0.5 \today}
+\date{Draft 0.6 \today}
 
 \setlength{\unitlength}{0.01\linewidth}
 \def\topfaction{0.6}
@@ -49,7 +49,9 @@ designed to provide evidence of this efficiency by comparing multicast
 and unicast methods of sending the same data to a large number of nodes,
 as would for example happen when a software update is released.
 
-\TODO{Report the actual results after we run the experiment}
+We find that there is partial evidence to support this conclusion,
+and use the experience gained here to design furter experiments which
+would provide a more definite answer.
 \end{abstract}
 
 \section{Introduction}
@@ -74,7 +76,7 @@ a large file to a large number of nodes.
 To provide evidence for the above statements, we compare the
 following methods of providing updates:
 
-\begin{list}{multicast}{}
+\begin{list}{multicast:}{}
 \item[tcp:]
 Traditional unicast using a TCP-based service: a
 server listens to TCP requests to send a copy of the software
@@ -111,7 +113,7 @@ a future experiment to test this.
 Independently of the method selected, there are three ``client''
 scheduling strategies:
 
-\begin{list}{immediate}{}
+\begin{list}{immediate:}{}
 \item[immediate:]
 All clients request updates at approximately the same time.
 \item[random:]
@@ -245,7 +247,7 @@ The resource monitoring daemon records the following data every second:
 
 \begin{itemize}
 \item 1-minute load average as provided by the system
-\item user and system CPU time used by the whole systemin the last second
+\item user and system CPU time used by the whole system in the last second
 \item memory and swap use
 \item bytes sent and received on the network interface used to
 transfer the update data
@@ -278,10 +280,19 @@ on the director, where possible we ran it many times on the same
 testbed, to have more experimental data without the extra overhead
 of setting up a new testbed.
 
-We ran three versions of this experiment, with 20 and 64 clients.  We
-have been unable to run a larger experiment as there were never sufficient
-resources available on the testbed, so we leave detailed study of scale
-issues to a future experiment.
+We had several testbeds running this experiment, with a number of
+of clients between 20 and 51 depending on available resources at
+the time we started each run; these are the results identified
+by names like ``S1L20'' or ``S1L51G'' where the number following
+the ``L'' is the number of clients. Some of the testbeds only differed
+by a minor code change which resulted in no measurable difference,
+and the letters added as suffix helped us identify these.  In all
+cases, results collected under the same name would have been running
+identical code on the same hardware.
+
+As there were never a very large number of free nodes while we ran
+the experiment, we will need to leave a detailed study of scale to
+a future experiment.
 
 \subsection{Update methods}
 The ``multicast'' method uses the ``IoT updater'' demonstration
@@ -292,17 +303,17 @@ the whole file and the checksum to a specified multicast group, then
 repeats the sending until asked to stop at the end of the experimend.
 Each client runs ``iotupc'' which waits for the data to arrive on the
 specified group and saves it to a local file, stopping when the file
-checksum matches.  The only feedback from client to server is provided
-by MLD (Multicast Listener Discovery) messages, which allow the server
-to know if there is at least one active client, or if they are all
-inactive: in particular, there is no mechanism for a client to request
-retransmission of missing data; however the client can just wait for the
+checksum matches.  The only feedback from client to server is provided by
+MLD (Multicast Listener Discovery) messages~cite{rfc:3810}, which allow
+the server to know if there is at least one active client, or if they
+are all inactive: in particular, there is no mechanism for a client to
+request retransmission of missing data: the client just waits for the
 server to send it again. More details on the IoT updater can be found
 in appendix~\ref{iotupd} or in the source code~\cite{iotupd:sources}.
 
 The unicast ``scp'' method just uses the ``scp'' program (part of
 openssh) on each client to connect to the server and ask for a copy of
-the file; then it calculates the file digest and compares it wit the
+the file; then it calculates the file digest and compares it with the
 digest provided by the director, repeating the whole thing in the
 unlikely case there is a mismatch: this allows us to show that the
 experiment setup is working with some well-known software; however the
@@ -394,18 +405,22 @@ we only describe the differences between them here.
 After copying the update data to the server and waiting 60 seconds, the
 director will ask the router to start its own resource monitoring, and,
 for the multicast experiment, to start a multicast routing daemon. We
-used ``pim6sd''~\cite{pim6sd:sources} for this experiment, although we
-plan to develop our own multicast routing daemon and future experiments
-will use it.
-
-The server wait 2 seconds before starting, to give the router time to be
-fully set up.
+used ``lcroute''~\cite{lcroute:sources}, which will form part of our
+own multicast routing platform. The director then waits for the router
+to signal that it has started and is ready to go.
 
 After that, the experiment proceeds identically with the director starting
-all clients and waiting for results.
+the server and all clients and waiting for results.  There is an extra step
+at the end: after the server has stopped, the director will ask the router
+to stop too, and waits for confirmation of this.
 
 We only ran a 20 clients version of this experiment, when there happened
-to be free resources for this but not for anything larger.
+to be free resources for this but not for anything larger. However we also
+had a time when one of the clients just failed to boot, so we ran it as
+a 19 clients experiment.  Using a similar name scheme to the single LAN
+experiment, the results are identified as ``S1R1L19C'', ``S1R1L19D''
+and ``S1R1L20A'' (the ``R1'' means that there was a single router in
+the network).
 
 \section{``Generic'' experiment}
 \label{GEN:experiment}
@@ -492,12 +507,124 @@ experiment described above: there are more routers, but they are
 all set up in the same way as the single router on that experiment.
 
 We ran experiments corresponding to both examples shown in the figures,
-using 20 clients rather than 8.
+using 20 clients rather than 8.  We also ran a 40 clients version of the
+``3 router levels, 4 client LANs'' experiment.  Since there are 3 levels
+of routers, we called these experiments ``S1R3L5B'', ``S1R3L5C'' and
+``S1R3L10H'' (the ``L'' indicates the number of clients per LAN, so
+in this case the total number of clients in the network is four times
+the number following the ``L'').
 
 \section{Experiment results}
 \label{results}
 
-\TODO{Show tables, graphs, link to result data--and draw conclusions}
+All the raw data produced by this experiment, as well as all the processed
+data referred to in this section is available~\cite{data}.  In this section
+we show some results we can draw from the data.  The appendices and software
+they cite describe how to convert the data to other formats, and how we
+processed it.
+
+\subsection{Run time}
+The first result we consider is the total time taken by each client
+to obtain the software update, showing separate averages for each network
+we ran and for each data size; also showing averages over all networks
+with the same number of clients, and over all experiments.
+
+An example data, collected timings for all single LAN experiments with
+40 clients, is shown in table~\pref{runtime:40:single}.
+\begin{table*}[p]
+\vskip -6ex
+\begin{small}
+\begin{center}
+\input run-time-40-single
+\end{center}
+\end{small}
+\caption{Run time averaged on all 40-clients single LAN experiments}
+\label{runtime:40:single}
+\end{table*}
+Because of the way the number of clients has an effect on (unicast)
+servers, we do not average over all experiments, but only over experiments
+with the same number of clients. Similar tables for all possible
+number of clients are available in the online data~\cite{data},
+and the appendix describes how to generate these and other tables
+from the raw data, also available online.
+
+\TODO{Show graphs}
+
+We use this data to consider the effect of scheduling on all update
+methods: multicast is largely unaffected, an update takes about the
+same time no matter when it's requested; on the other hand, all unicast
+method show quite a difference due to scheduling, with ``immediate''
+being extremely slow, ``random2'' considerably faster, and ``random''
+intermediate between the two. The conclusion we can draw is that having
+everything happening at once is bad for unicast, while multicast doesn't
+even notice the difference.  We interpret this by remembering that unicast
+needs to send a separate data stream to each client, with overlapping
+requests competing for the available network bandwidth, while multicast
+sends a single stream; random scheduling reduces the overlap between
+clients compared to immediate, and so results in the client requiring
+less time to obtain the update, and random2 reduces the overlap even
+more with the corresponding result in terms of speed.
+
+Note that servers in the multicast experiment don't just send data
+all the time, they use MLDv2 (Multicast Listener Discovery version
+2)~\cite{rfc:3810} and they only start sending when the first client
+starts up successfully.  This introduces a slight delay but it will
+be an important point for future experiments.
+
+Extrapolating from this (and hoping to confirm this with a future much
+larger future experiment), multicast would remain largely unaffected
+by adding more clients, while unicast would show an even more
+pronounced effect.  In particular, the strategy of randomising
+updates to avoid overloading a server only works up to a limit:
+when it becomes impossible to schedule updates to avoid overlap,
+the only solution would then be to add servers, with the obvious
+environmental and economical costs; multicast on the other hand
+would continue to be considerate on resources, with any scheduling
+strategy.
+
+Moving to a different network topology, table~\pref{runtime:40:lans}
+shows the same data collected from experiments with 3 levels of routers
+(and 10 clients per LAN, so again 40 clients in total).
+\begin{table*}[p]
+\vskip -6ex
+\begin{small}
+\begin{center}
+\input run-time-40-lans
+\end{center}
+\end{small}
+\caption{Run time averaged on all 40-clients multi-LAN experiments}
+\label{runtime:40:lans}
+\end{table*}
+For comparison, we also collect the data for all 40-client experiments
+with any network topology in table~\pref{runtime:40:all}.
+\begin{table*}[p]
+\vskip -6ex
+\begin{small}
+\begin{center}
+\input run-time-40-all
+\end{center}
+\end{small}
+\caption{Run time averaged on all 40-clients experiments}
+\label{runtime:40:all}
+\end{table*}
+
+\TODO{Show graphs}
+
+These tables show a slightly different story, with multicast seeming to
+have became slower compared to the single LAN case, with unicast seeming
+to be unaffected by the presence of routers.  There are two sources for
+this extra delay: MLDv2, mentioned in the single-LAN results, works
+on a LAN, so the routers need to forward this information before the
+servers know they need to start sending; and once the multicast data
+starts flowing, the kernel will need to query a routing daemon to know
+what to do with it.  However we can still see that multicast remains
+unaffected by scheduling, retaining the advantage already identified
+in the single-LAN case.  And we still expect larger experiments to show
+this difference between unicast and multicast more clearly.
+
+\subsection{Server resources}
+
+\TODO{Show tables and graphs, and draw conclusions}
 
 \section{Future work}
 \label{future}
@@ -510,11 +637,11 @@ is made up of rather more irregular topologies and it it would be
 interesting to investigate more variations in this area in a future set
 of experiments.
 
-We also limited the experiments to 64 clients, as we have been unable
-to allocate larger networks: the testbed never had enough free
-resources.  To properly test how the various method scale, we would
-need some experiment setup where we can easily allocate 500 or more
-nodes.
+We also limited the experiments to about 50 clients, as we have been
+unable to allocate larger networks: the testbed never had enough free
+resources.  To properly test how the various method scale, we would need
+some experiment setup where we can easily allocate 500 or more nodes
+and have them running for days.
 
 Alternatively, we would like to run the experiment distributed across
 several sites to have a much larger number of total nodes, and also a
@@ -527,9 +654,14 @@ the choice of sites.
 We also simplified the software update by assuming that all clients
 request exactly the same file, rather than a more complex situation
 in which every client requests a different subset of all available
-updates, due to its own unique update history; while we expect that
-multicast will scale really well to this situation, we haven't
-ran an experiment to support this.
+updates, due to its own unique update history; unicast of course
+will need very little change: since each client receives its own
+separate stream, they don't have to contain the same data; for
+multicast, we already have (in the present experiment) servers only
+sending data when somebody is listening, so it would never need to
+send all possible updates all the time, and we expect multicast
+to handle this situation well; however without a corresponding
+experiment, ``expect'' is all we can say about this.
 
 All the experiments we ran included a single server.  The main point
 of this experiment was to show that a single server is sufficient to
@@ -541,8 +673,8 @@ efficient, server has a fault, the updates stop; ideally, these
 multiple servers will be reachable by completely different network
 paths as well.  We think that multicast will help with that too,
 for example multiple servers can each send data at a fraction of the
-bandwidth, and when all works clients will get the advantage of the
-combined output from all servers, with a network or server failure
+bandwidth, and when they all work clients will get the advantage of the
+combined output from all servers, while a network or server failure
 would automatically result in a corresponding reduction of speed, and
 the subsequent recovery or replacement of the faulty parts would
 automatically result in the system returning to full speed.  This
@@ -573,7 +705,7 @@ the data, and a checksum is provided over a more secure mechanism for
 verification.  More recently, most systems are moving to HTTPS with the
 added overhead of encryption on every communication: we expect that the
 benefits of multicast shown in this experiment will continue to apply,
-but we have not tested this, and might consider a future experiment in
+but we have not tested this, and will consider a future experiment in
 which we extend the multicast update method to add encryption of all
 communication, comparing this with the normal stream encryption used
 for example with HTTPS.
@@ -674,7 +806,7 @@ Internally, the ``{\tt run-experiment}'' program calls other programs
 running on the director, but also on servers, routers and clients
 as necessary to implement the procedure described in
 sections~\ref{LAN:experiment} to~\ref{GEN:experiment}. These
-have names like ``{\tt start-tcp-server}'' or
+programs have names like ``{\tt start-tcp-server}'' or
 ``{\tt start-multicast-router}'' to start what is required for
 a particular experiment on a particular node (in this example,
 start the TCP experiment on a server, and start the multicast
@@ -855,9 +987,8 @@ These tar archives have names like:
 
 \begin{small}
 \begin{verbatim}
-S1L20C-vwall1-20220119101508-
-multicast-random-2048-
-20220131154314.tar.gz
+S1L20C-vwall1-20220119101508-multicast-
+random-2048-20220131154314.tar.gz
 \end{verbatim}
 \end{small}
 
@@ -1001,7 +1132,7 @@ about client start and stop times and adds that to the table.
 We have currently defined three data types, but the script allows adding more
 very easily:
 
-\begin{list}{server-load}{}
+\begin{list}{server-load:}{}
 \item[run-time:]
 Total time the client required from sending the first request to server
 until it received the complete file.
@@ -1018,7 +1149,8 @@ milliseconds since the previous sample, and further divided to
 obtain a number of megabytes per second.
 \end{list}
 
-\TODO{Make above summary.sqlite available somewhere}
+A pre-filled cache database is available online together with the raw
+data~\cite{data}
 
 \section{Important notes on repeating this experiment}
 \label{configuration}
@@ -1089,10 +1221,16 @@ produce no results.
 \sloppy
 \hbadness=6000
 
+\bibitem{data}
+  TODO: all the available data
+
 \bibitem{lwmon:sources}
   Calvelli, C..
   {\em lwmon: A {\bf\em l}ight-{\bf\em w}eight system {\bf\em mon}itoring tool}.\\
   \url{https://github.com/librestack/lwmon}
+
+\bibitem{lcroute:sources}
+  TODO: lcroute sources
 
 \bibitem{exp:scripts}
   Calvelli, C., Payne, E. and B. Sheffield.
@@ -1121,6 +1259,15 @@ produce no results.
   \longurl{https://www.rfc-editor.org/in-notes/rfc3170.txt}%
   {in-notes/rfc3170.txt}
 
+\bibitem{rfc:3810}
+  Vida, R. and L. Costa, eds.
+  {\em Multicast Listener Discovery Version 2 (MLDv2) for IPv6}.
+  RFC 3810.\\
+  \longurl{https://www.rfc-editor.org/in-notes/rfc3810.txt}%
+  {https://www.rfc-editor.org/}\\
+  \longurl{https://www.rfc-editor.org/in-notes/rfc3810.txt}%
+  {in-notes/rfc3810.txt}
+
 \bibitem{iotupd:paper}
   TODO: iotupd paper
 
@@ -1140,10 +1287,6 @@ produce no results.
   {\em F0rth/mcast-tools: package containing IPv6-multicast
   routing daemons and tools}.\\
   \url{https://github.com/F0rth/mcast-tools}
-
-\bibitem{pim6sd:sources}
-  {\em troglobit/pim6sd: PIM for IPv6 sparse mode daemon.}\\
-  \url{https://github.com/troglobit/pim6sd}
 
 \end{thebibliography}
 \end{document}
