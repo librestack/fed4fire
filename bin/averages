@@ -53,7 +53,7 @@ use lib "$Bin/../perl";
 use Experiment;
 use Lwmon;
 
-my $usage = "Usage: $0 [-acmnprs] DATA_NAME CACHE_DB REPORT_TARBALL [...]\n";
+my $usage = "Usage: $0 [options] DATA_NAME CACHE_DB REPORT_TARBALL [...]\n";
 my $raw_data = 0;
 my $sort_num = 1;
 my $sort_index = 1;

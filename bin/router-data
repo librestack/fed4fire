@@ -121,16 +121,13 @@ for my $tbp (@ARGV) {
 	for my $dp (@dataname) {
 	    my ($dataname, $router, $ifname, $direction, $ifnum, $element) = @$dp;
 	    my $lwmon = Lwmon->new("$dir/router$router.$fname");
-	    my $first_ts;
 	    while (defined (my $packet = $lwmon->nextrecord({6 => { $ifnum => undef}}))) {
 		for my $item (@{$packet->{data}}) {
 		    $item->{type} == 6 or next;
 		    $item->{name} eq $ifnum or next;
 		    my $v = $item->{values}[$element];
 		    defined $v or next;
-		    my $ts = $packet->{timestamp};
-		    defined $first_ts or $first_ts = $ts;
-		    $ts = int($ts - $first_ts);
+		    my $ts = int($packet->{timestamp});
 		    if (exists $tsdata{$ts} && exists $tsdata{$ts}{$dataname}) {
 			$tsdata{$ts}{$dataname} += $v;
 		    } else {
@@ -145,7 +142,8 @@ for my $tbp (@ARGV) {
 }
 
 my @timestamps = sort {$a <=> $b} keys %tsdata;
-my @width = length($timestamps[-1]);
+my $first_ts = $timestamps[0];
+my @width = length($timestamps[-1] - $first_ts);
 $width[0] < 4 and $width[0] = 4;
 for my $dp (@dataname) {
     my $dataname = $dp->[0];
@@ -162,7 +160,8 @@ my $fmt = join('  ', map { "%${_}s" } @width) . "\n";
 printf $fmt, 'TIME', (map { $_->[0] } @dataname);
 
 for my $ts (@timestamps) {
-    printf $fmt, $ts, map { exists $tsdata{$ts}{$_->[0]} ? $tsdata{$ts}{$_->[0]} : '-'; } @dataname;
+    printf $fmt, $ts - $first_ts,
+	   map { exists $tsdata{$ts}{$_->[0]} ? $tsdata{$ts}{$_->[0]} : '-'; } @dataname;
 }
 
 sub run_cmd {
