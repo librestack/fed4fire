@@ -1,0 +1,175 @@
+#!/usr/bin/perl -w
+
+# read lwmon router data and tries to show the relationship between
+# activity on various interface: this is mostly to analyse the
+# working of multicast routing
+
+# Usage:
+# router-data [options] ITEM_SPEC [ITEM_SPEC]... REPORT_TARBALL [...]
+#
+# ITEM_SPEC is a specification of the form NUMBER:INTERFACE:DIRECTION where:
+#
+# NUMBER is the router number
+#
+# INTERFACE is one of:
+#     server     The interface where packets destined to server or director
+#                are sent
+#     client     The interface where packets destined to clients under
+#                this router in the network tree are sent
+#
+# DIRECTION is either "rx" or "tx" and is relative to the router's
+# point of view
+#
+# For example, to follow the data down a particular network path on an
+# experiment with 3 levels of routers:
+#
+# router-data 6:server:rx 6:client:tx 4:client:tx 0:client:tx REPORT_TARBALL [...]
+#
+# REPORT_TARBALL is the path to a tarball produced by the experiment; all
+# data contained in all tarballs listed will be combined to form the output
+#
+# options:
+#    -p          interpret each REPORT_TARBALL as a "prefix"; similar to
+#                adding a "*" to the end, but exclude test and incomplete
+#                result files
+#    -SSCHEDULE  with "-p", select only schedule SCHEDULE
+#    -UUPDATE    with "-p", select only update type UPDATE
+#    -ZNUM       with "-p", select only file size NUM
+#    -H          produce HTML table
+#    -L          produce a LaTeX tabular environment
+#    -T          produce pre-formatted text (default)
+#
+# output is sorted by time
+
+use strict;
+use FindBin '$Bin';
+use File::Temp 'tempdir';
+use File::Path 'remove_tree';
+use lib "$Bin/../perl";
+use Experiment;
+use Lwmon;
+
+my $usage = "Usage: $0 [options] ITEM_SPEC [ITEM_SPEC]... REPORT_TARBALL [...]\n";
+my $prefix = 0;
+my $output = 'T';
+my $size = 0;
+my $schedule = '';
+my $update = '';
+while (@ARGV && $ARGV[0] =~ /^-+(.*)$/) {
+    my $opts = $1;
+    shift @ARGV;
+    $opts eq '' and last;
+    while ($opts =~ s/^(.)//) {
+	my $opt = $1;
+	$opt eq 'p' and $prefix = 1, next;
+	$opt eq 'S' and $opts =~ s/^(immediate|random|random2)$// and $schedule = $1, next;
+	$opt eq 'U' and $opts =~ s/^(multicast|scp|tcp|udp)$// and $update = $1, next;
+	$opt eq 'Z' and $opts =~ s/^(\d+)// and $size = $1, next;
+	$opt =~ /^[HLT]$/ and $output = $opt, next;
+	die $usage;
+    }
+}
+
+my @dataname = ();
+while (@ARGV && $ARGV[0] =~ /^(\d+):(server|client):(rx|tx)$/) {
+    push @dataname, [$ARGV[0], $1, $2, $3, $2 eq 'client' ? 'if1' : 'if2', $3 eq 'tx' ? 1 : 2];
+    shift;
+}
+@dataname && @ARGV or die $usage;
+
+my $dir;
+END { defined $dir and remove_tree($dir); undef $dir; }
+
+my %tsdata = ();
+for my $tbp (@ARGV) {
+    my @tbs;
+    if ($prefix) {
+	# determine if there's a directory
+	my ($dir, $name);
+	if ($tbp =~ m:^(.*)/([^/]*)$:) {
+	    ($dir, $name) = ($1, $2);
+	} else {
+	    ($dir, $name) = ('.', $tbp);
+	}
+	my $re = qr/^\Q$name\E/;
+	opendir (TBDIR, $dir) or die "$dir: $!\n";
+	while (defined (my $ent = readdir TBDIR)) {
+	    $ent =~ $re or next;
+	    $ent =~ /\.tar\.gz$/ or next;
+	    $ent =~ /\.(?:partial|test)\./ and next;
+	    $size == 0 || $ent =~ /-$size-/ or next;
+	    $update eq '' || $ent =~ /-\Q$update\E-/ or next;
+	    $schedule eq '' || $ent =~ /-\Q$schedule\E-/ or next;
+	    stat "$dir/$ent" or die "$dir/$ent $!\n";
+	    -f _ and push @tbs, "$dir/$ent";
+	}
+	closedir TBDIR;
+	@tbs or die "$tbp did not match any file\n";
+	@tbs = sort @tbs;
+    } else {
+	@tbs = ($tbp);
+    }
+    for my $tb (@tbs) {
+	stat $tb or die "$tb: $!\n";
+	(my $tfilename = $tb) =~ s!^.*/!!;
+	my %tar_info = parse_tarball_name($tfilename, $tb);
+	my $fname = join('.', @tar_info{qw(update schedule file_size)});
+	$dir = tempdir() or die "tmpdir: $!\n";
+	print "$tfilename\n";
+	my $ptb = $tb =~ m!^/! ? $tb : "./$tb";
+	run_cmd("tar $tb", 'tar', 'xf', $ptb, '-C', $dir);
+	for my $dp (@dataname) {
+	    my ($dataname, $router, $ifname, $direction, $ifnum, $element) = @$dp;
+	    my $lwmon = Lwmon->new("$dir/router$router.$fname");
+	    my $first_ts;
+	    while (defined (my $packet = $lwmon->nextrecord({6 => { $ifnum => undef}}))) {
+		for my $item (@{$packet->{data}}) {
+		    $item->{type} == 6 or next;
+		    $item->{name} eq $ifnum or next;
+		    my $v = $item->{values}[$element];
+		    defined $v or next;
+		    my $ts = $packet->{timestamp};
+		    defined $first_ts or $first_ts = $ts;
+		    $ts = int($ts - $first_ts);
+		    if (exists $tsdata{$ts} && exists $tsdata{$ts}{$dataname}) {
+			$tsdata{$ts}{$dataname} += $v;
+		    } else {
+			$tsdata{$ts}{$dataname} = $v;
+		    }
+		}
+	    }
+	}
+	remove_tree($dir);
+	undef $dir;
+    }
+}
+
+my @timestamps = sort {$a <=> $b} keys %tsdata;
+my @width = length($timestamps[-1]);
+$width[0] < 4 and $width[0] = 4;
+for my $dp (@dataname) {
+    my $dataname = $dp->[0];
+    my $len = length($dataname);
+    for my $ts (@timestamps) {
+	exists $tsdata{$ts}{$dataname} or next;
+	$tsdata{$ts}{$dataname} = sprintf "%.3f", $tsdata{$ts}{$dataname} * 1e-6;
+	$len < length($tsdata{$ts}{$dataname}) and $len = length($tsdata{$ts}{$dataname});
+    }
+    push @width, $len;
+}
+
+my $fmt = join('  ', map { "%${_}s" } @width) . "\n";
+printf $fmt, 'TIME', (map { $_->[0] } @dataname);
+
+for my $ts (@timestamps) {
+    printf $fmt, $ts, map { exists $tsdata{$ts}{$_->[0]} ? $tsdata{$ts}{$_->[0]} : '-'; } @dataname;
+}
+
+sub run_cmd {
+    my ($name, @cmd) = @_;
+    system(@cmd) == 0 and return;
+    $? == -1 and die "$name: $!\n";
+    $? & 0x7f and die "$name: killed by signal " . ($? & 0x7f) . "\n";
+    die "$name: exited with status " . ($? >> 8) . "\n";
+}
+
