@@ -768,9 +768,66 @@ experiments on different hardware or using a different operating
 system may show a different result.  All we can do with these numbers
 is show them and offer our guesses.
 
-\subsection{Router resources}
+\subsection{Routing}
 
-\TODO{Show tables and graphs, and draw conclusions}
+We are not specifically analysing multicast routing in this experiment,
+however a glance at some router network data will explain why the various
+multicast updates appear to take longer to start, and this will affect
+the random update schedules more than immediate.  We consider just
+two examples with 3 levels of routers and a path going from the server
+to the ``leftmost'' client LAN (in the tree representation used elsewhere
+in this document). In the specific example this goes through routers
+numbered 6, 4 and 0.
+
+Table~\pref{router2} shows the network traffic in and out of a router
+while a multicast immediate experiment is running. Table~\pref{router1}
+is the same but for a longer experiment (larger file). The column
+headers refer to the router number, the router's interface (towards
+clients or servers) and the data direction as seen from the router:
+therefore ``6:client:tx'' would show data sent by router 6 towards
+the clients and ``0:server:rx'' shows data received by router 0 from
+the direction of the server (it receives it from router 4, not directly
+from the server, but it is data arriving ``from the direction of the
+server''; the interface names we have used here do not imply direct
+network connection to server or clients).
+\begin{table*}[p]
+\vskip -20ex
+\begin{small}
+\begin{center}
+\input router2
+\end{center}
+\end{small}
+\caption{Example routing}
+\label{router2}
+\end{table*}
+\begin{table*}[p]
+\vskip -20ex
+\begin{small}
+\begin{center}
+\input router1
+\end{center}
+\end{small}
+\caption{Example routing}
+\label{router1}
+\end{table*}
+
+\TODO{Show graphs}
+
+This shows the delay introduced by MLDv2~\cite{rfc:3810} and multicast
+routing.  The server starts transmitting data (as shown in the first
+data column, network data received by the ``top'' router) but this
+data only starts being forwarded with a small delay; and longer delay
+are introduced by subsequent routers until it eventually gets to the
+client(s).
+
+Later in the experiment, the server is still sending, because some
+clients is still listening. However forwarding only goes part of
+the network path we are following in this table, meaning that all
+clients in the specific client LAN at the end of this path have
+received all the data, they are no longer listening, and the routers
+are no longer forwarding there; however data is still forwarded
+for part of the path because other LANs served by a prefix of this
+path are still requiring data.
 
 \section{Future work}
 \label{future}
