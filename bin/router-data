@@ -115,7 +115,7 @@ for my $tbp (@ARGV) {
 	my %tar_info = parse_tarball_name($tfilename, $tb);
 	my $fname = join('.', @tar_info{qw(update schedule file_size)});
 	$dir = tempdir() or die "tmpdir: $!\n";
-	print "$tfilename\n";
+	#print "$tfilename\n";
 	my $ptb = $tb =~ m!^/! ? $tb : "./$tb";
 	run_cmd("tar $tb", 'tar', 'xf', $ptb, '-C', $dir);
 	for my $dp (@dataname) {
@@ -143,25 +143,63 @@ for my $tbp (@ARGV) {
 
 my @timestamps = sort {$a <=> $b} keys %tsdata;
 my $first_ts = $timestamps[0];
-my @width = length($timestamps[-1] - $first_ts);
-$width[0] < 4 and $width[0] = 4;
-for my $dp (@dataname) {
-    my $dataname = $dp->[0];
-    my $len = length($dataname);
-    for my $ts (@timestamps) {
-	exists $tsdata{$ts}{$dataname} or next;
-	$tsdata{$ts}{$dataname} = sprintf "%.3f", $tsdata{$ts}{$dataname} * 1e-6;
-	$len < length($tsdata{$ts}{$dataname}) and $len = length($tsdata{$ts}{$dataname});
+
+for my $ts (@timestamps) {
+    for my $dn (keys %{$tsdata{$ts}}) {
+	$tsdata{$ts}{$dn} = sprintf "%.3f", $tsdata{$ts}{$dn} * 1e-6;
     }
-    push @width, $len;
 }
 
-my $fmt = join('  ', map { "%${_}s" } @width) . "\n";
-printf $fmt, 'TIME', (map { $_->[0] } @dataname);
+my $fmt;
+if ($output eq 'H') {
+    $fmt = "<tr>\n";
+    $fmt .= "<td align=\"right\">%s</td>\n";
+    print "<html>\n";
+    print "<body>\n";
+    print "<table>\n";
+    print "<tr>\n";
+    print "<th align=\"right\">TIME</th>\n";
+    for my $dp (@dataname) {
+	print "<th align=\"right\">$dp->[0]</th>\n";
+	$fmt .= "<td align=\"right\">%s</td>\n";
+    }
+    print "</tr>\n";
+    $fmt .= "</tr>\n";
+} elsif ($output eq 'L') {
+    print "\\begin{tabular}{|r", 'r' x scalar(@dataname), "|}\n";
+    print "\\hline\n";
+    $fmt = join(' & ', map { "%s" } 1, @dataname) . "\\\\\n";
+    printf $fmt, 'TIME', (map { $_->[0] } @dataname);
+    print "\\hline\n";
+} else {
+    my @width = length($timestamps[-1] - $first_ts);
+    $width[0] < 4 and $width[0] = 4;
+    for my $dp (@dataname) {
+	my $dataname = $dp->[0];
+	my $len = length($dataname);
+	for my $ts (@timestamps) {
+	    exists $tsdata{$ts}{$dataname} or next;
+	    $len < length($tsdata{$ts}{$dataname}) and $len = length($tsdata{$ts}{$dataname});
+	}
+	push @width, $len;
+    }
+    $fmt = join('  ', map { "%${_}s" } @width) . "\n";
+    printf $fmt, 'TIME', (map { $_->[0] } @dataname);
+}
 
 for my $ts (@timestamps) {
     printf $fmt, $ts - $first_ts,
 	   map { exists $tsdata{$ts}{$_->[0]} ? $tsdata{$ts}{$_->[0]} : '-'; } @dataname;
+}
+
+if ($output eq 'H') {
+    print "</table>\n";
+    print "</body>\n";
+    print "</html>\n";
+} elsif ($output eq 'L') {
+    print "\\hline\n";
+    print "\\end{tabular}\n";
+} else {
 }
 
 sub run_cmd {
