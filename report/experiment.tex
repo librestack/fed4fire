@@ -650,93 +650,123 @@ A future experiment will need to look into this.
 
 \subsection{Server resources}
 
-Table~\pref{tx:multicast} and the following three tables show the data
-sent by the server for each number of active clients, the four tables
-showing respectively multicast, scp, tcp and udp; this is averaged
-over all the experiments we ran with file size 2GB and schedule immediate,
-and is measured in megabytes per second.
+Table~\pref{server:multicast} shows the data sent by the server and
+the load level for each number of active clients during the multicast
+update experiment. The data is averaged over all experiments which used
+multicast update, file size 2GB and schedule immediate. The network
+data is measured in megabytes sent per second, and the load data is the
+fraction of CPU used.
 \begin{table*}[p]
-\vskip -16ex
+\vskip -18ex
 \begin{small}
 \begin{center}
-\input tx-multicast
+\input server-multicast
 \end{center}
 \end{small}
-\caption{Server data transmitted per number of active clients: multicast}
-\label{tx:multicast}
-\end{table*}
-\begin{table*}[p]
-\vskip -16ex
-\begin{small}
-\begin{center}
-\input tx-scp
-\end{center}
-\end{small}
-\caption{Server data transmitted per number of active clients: scp}
-\label{tx:scp}
-\end{table*}
-\begin{table*}[p]
-\vskip -16ex
-\begin{small}
-\begin{center}
-\input tx-tcp
-\end{center}
-\end{small}
-\caption{Server data transmitted per number of active clients: tcp}
-\label{tx:tcp}
-\end{table*}
-\begin{table*}[p]
-\vskip -16ex
-\begin{small}
-\begin{center}
-\input tx-udp
-\end{center}
-\end{small}
-\caption{Server data transmitted per number of active clients: udp}
-\label{tx:udp}
+\caption{Server resource data: multicast}
+\label{server:multicast}
 \end{table*}
 
 By active client we mean a client which is in the middle of obtaining
-the file: for unicast, this is determined by the server logging when it
-receives a request, and also when it has finished sending the reply;
-for multicast, this is obtained by comparing the client start and end
-timestamps, which is less precise but the information is not known
-directly by the server.
+the file: for the multicast update, this is determined by comparing
+the ``client starting to receive'' and ``client received the update''
+timestamps in each client's logs with the timestamps of each resource
+monitoring data item logged by the server.
+
+We observe how the server load is mostly around 1 or just below,
+meaning that the server is using one processor almost constantly,
+with the rest being idle. The network data shows that it is sending at
+essentially the full bandwidth allowed by a gigabit network (i.e. 125
+megabytes per second, or slightly less due to encapsulation overheads).
+Only the ``0 clients'' row show lower values.  This corresponds to our
+expectation that the multicast server is unaffected by the number of
+clients receiving data, with the exception that it can stop sending if
+it knows that there are no listeners.
+
+Table~\pref{server:scp} and the two following tables show similar data
+for the unicast update mechanism: scp, tcp and udp respectively. In
+these tables, the number of active clients is determined using server
+timestamps only, as the server logs the time it receives a request and
+the time it finishes sending the data.
+\begin{table*}[p]
+\vskip -18ex
+\begin{small}
+\begin{center}
+\input server-scp
+\end{center}
+\end{small}
+\caption{Server resource data: scp}
+\label{server:scp}
+\end{table*}
+\begin{table*}[p]
+\vskip -18ex
+\begin{small}
+\begin{center}
+\input server-tcp
+\end{center}
+\end{small}
+\caption{Server resource data: tcp}
+\label{server:tcp}
+\end{table*}
+\begin{table*}[p]
+\vskip -20ex
+\begin{small}
+\begin{center}
+\input server-udp
+\end{center}
+\end{small}
+\caption{Server resource data: udp}
+\label{server:udp}
+\end{table*}
 
 \TODO{Show graphs}
 
-Note that the udp table has been truncated to fit in the page:
-the full table is available with the online data~\cite{data}.
-The reason the table is longer than the other is due to the effect
-of packet loss and retransmission requests, where the server often
-sees a retransmission request from a client before it has logged the
-end of the previous request, resulting in the appearance of more
-active clients than there actually exist.  In a future experiment
-wil might add a delay on the client before requesting retransmissions
-to avoid this issue.  However, this does not change the substance
-of this discussion.
+Note that the udp table has been truncated to fit in the page: the full
+table is available with the online data~\cite{data}.  The reason the
+table is longer than the others is due to the effect of packet loss
+and retransmission requests, where the client could request multiple
+retransmissions at once, and these are seen as independent requests by
+the server, so appear as multiple active clients. However, from the point
+of view of the server it is the number of requests being processed which
+determines resource usage, rather than the number of distinct clients
+producing these requests, so we decided to leave the data as it is.
+Some of the more recent experiments have had the client code modified
+to always serialise the retransmission requests, but we did not re-run
+all experiments as there appeared to be no reason to do so.
 
-On the first (multicast) table, we observe how the single data stream
-sent by the server is essentially saturating the network card at all
-times. There is no dependency on the number of clients, apart from
-a lower value for ``no clients'' due to the server not sending if it
-knows that there are no listeners.
+The unicast tables surprised us a bit.  We expected to see the network
+constantly saturated as all streams are competing for it, except of course
+when there are no active clients, in which case the server would not send
+anything.  Instead, it appears that the server isn't always saturating
+the network when sending to multiple clients, and that explains how
+some testbeds seemed to take even longer than expected to complete the
+file copy.  We are not sure how to explain this, unless there is some
+hardware bottleneck for example obtaining the data from disk: for
+multicast, which reads a file sequentially from start to end in a
+single thread, the kernel's readahead may be helping, while the
+unicast servers have multiple threads all reading the same file at
+different positions, and it may be able to defeat the kernel's
+caching.  However we cannot say for sure until we repeat these
+experiments measuring other resources such as disk I/O bandwidth.
 
-The remaining tables (the various unicast updates) surprised us
-a bit.  We expected to see the network constantly saturated as all
-streams are competing for it, except of course when there are no
-active clients, in which case the server would not send anything.
-Instead, it appears that the server isn't always saturating the network
-when sending to multiple clients, and that explains how some testbeds
-seemed to take even longer than expected to complete the file copy.
-We can only explain this by assuming that the server has been slowed
-down by disk access time: this is not seen on multicast as the file
-is read sequentially from start to end, in a single thread, while for
-unicast each request may be reading different parts of the file.
-We are still surprised that kernel caching has not eliminated this.
-A future experiment will attempt to measure I/O data rates as well.
+For server load, scp shows a drop in processor utilisation which appears
+to match the drop in network utilisation; however where the network is
+fully saturated the load is normally above 1, and growing with the
+number of clients: this would reflect the number of processors busy
+encrypting data, and we note that the corresponding tcp data shows very
+low load, reflecting the fact that all the server is doing is moving
+bytes from disk to network card.
 
-\TODO{server load}
+Udp server load appears to be very high although it follows a similar
+pattern to the scp data. Since there is no encryption and the server
+is just moving bytes from disk to network card, this seems to be
+a higher processor utilisation than one would expect. It is possible
+that the network stack is optimised for TCP and doesn't handle UDP
+very well; we have also observed high levels of packet loss at times
+which aren't justified by the network setup.  Possibly running these
+experiments on different hardware or using a different operating
+system may show a different result.  All we can do with these numbers
+is show them and offer our guesses.
 
 \subsection{Router resources}
 
