@@ -533,17 +533,17 @@ if ($output eq 'H') {
 	print "<th align=\"right\">$s</th>\n";
     }
 } elsif ($output eq 'L') {
-    print "\\begin{tabular}{",
-	  $update eq '' ? "|l" : '',
-	  $schedule eq '' ? "|l" : '',
-	  $size == 0 ? "|r" : '',
-	  $count_clients ? '|r' : '', "|r|r|r|r|r|}\n";
+    print "\\begin{tabular}{|",
+	  $update eq '' ? "l" : '',
+	  $schedule eq '' ? "l" : '',
+	  $size == 0 ? "r" : '',
+	  $count_clients ? 'r' : '', "rrrrr|}\n";
     print "\\hline\n";
-    $update eq '' and print 'UPDATE & ';
-    $schedule eq '' and print 'SCHEDULE & ';
-    $size == 0 and print 'SIZE & ';
-    $count_clients and print ' \\#CLIENTS & ';
-    print "AVG & \\#DATA & MIN & MAX & STD\\\\\n";
+    $update eq '' and print '{\\sc update}&';
+    $schedule eq '' and print '{\\sc schedule}&';
+    $size == 0 and print '{\\sc size}&';
+    $count_clients and print '{\\sc\\#clients}&';
+    print "{\\sc AVG}&{\\sc\\#DATA}&{\\sc MIN}&{\\sc MAX}&{\\sc STD}\\\\\n";
     print "\\hline\n";
 } else {
     $update eq '' and print 'UPDATE    ';
