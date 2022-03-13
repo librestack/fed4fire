@@ -1160,11 +1160,144 @@ experiment results in a format suitable for further analysis.
 
 \subsection{Multicast update method}
 \label{iotupd}
-\TODO{iotupd}
+
+The software for this experiment is from the IoT Updater example described
+in~\cite{iotupd:paper}, and whose sources are in~\cite{iotupd:sources}.
+
+The multicast server uses MLD snooping to decide whether there is at
+least one active client, and starts sending as soon as one is present,
+stopping when it knows no client is still requiring data. While running,
+it simply sends the file to an IPv6 multicast group continuously on a
+loop. The file is sent as a sequence of datagrams each containing some
+data from the file, as well as a checksum for the whole file, the size
+of the whole file, and the size and starting file offset for the data
+contained in the datagram.
+
+The client node joins the multicast group and immediately begins receiving
+the file.  When the first datagram is received, the client creates a
+memory-mapped file of the appropriate size and begins writing each datagram at
+the appropriate offset in the file.  When enough data has been received, the
+client starts a checksumming thread to verify the data on disk matches the
+expected checksum.  If it does, the client parts the multicast groups and exits.
+If the checksum does not match, the client continues receiving and writing data
+until it does.  Data payloads received are compared to the data on disk before
+copying and only different data is written or counted towards received data.
+
+The IoT Updater can interleave data sent across multiple multicast groups, and
+use the sequence numbers in packets to detect packet loss.  If packet loss is
+due to congestion, the client can join fewer groups to lower the received data
+rate.  This can function as a basic form of flow control.  This function was not
+used during the experiments - the client and server were set to use only a
+single multicast group
+
+A simple way to run the server manually to send a file to multicast
+group {\tt ff1e::42} via interface {\tt eth0} would be:
+
+\begin{verbatim}
+iotupd sourcefile ff1e::42 eth0 --mld
+\end{verbatim}
+
+To receive the data one runs the client as:
+
+\begin{verbatim}
+iotupc destfile ff1e::42 eth0
+\end{verbatim}
+
+Note that the client does not specify how to find the server: this is
+not Single Source Multicast and there is no need to provide this
+information.
+
+If there are routers between the server and the client, these routers need to
+be able to forward multicast traffic.  We used lcroute~\cite{lcroute:sources}
+on a Linux node, starting lcroute as:
+
+\begin{verbatim}
+lcroute eth0 eth1
+\end{verbatim}
+
+Where {\tt eth0} is the interface where the multicast traffic will be
+sent to (i.e.\ where the unicast routing towards the client goes)
+and {\tt eth1} is the interface where the multicast traffic will arrive
+from (i.e.\ where the unicast routing towards the server goes). The
+version of lcroute we used needed to know this, however this restriction
+will be lifted in future.
+
+Note that the kernel needs to be configured for IPv6 multicast routing
+for this to work. A simple way to check is to run:
+
+\begin{verbatim}
+sysctl net.ipv6.conf.all.mc_forwarding
+\end{verbatim}
+
+This may reply 0 or 1 on a kernel with a suitable configuration (it
+will only show 1 if lcroute or another multicast routing daemon
+is running).  If the kernel is not configured appropriately, the
+command will produce an error.
 
 \subsection{Unicast update methods}
 \label{unisync}
-\TODO{unisync}
+
+The software used for this experiment (which includes UDP and TCP) can
+be found in~\cite{unisync:sources}.
+
+For both update methods, the server waits for client requests, then
+forks and handles each request in a separate process. Clients send
+a request using the appropriate protocol, then wait for a reply.
+
+The programs for both server and client, and for both UDP and TCP,
+are started with the same command, with different parameters:
+
+\begin{verbatim}
+iotup server|client udp|tcp \
+FILENAME SERVER_ADDRESS
+\end{verbatim}
+
+The server will open the file specified and binds a socket to the
+address specified; the client will send a request to the server
+address specified, and saves the file to the name indicated.
+
+For TCP, clients open a stream connection to a predefined port on
+the server; the server accepts connection and sends back a header
+containing the file size and a checksum of the whole file, then
+the file data from beginning to end. The client simply reads all
+the data from the server, saves it to a file, and checks that
+the size and checksum are correct: if they aren't, it will repeat
+the whole request.
+
+For UDP, clients send a datagram to a predefined port on the server,
+containing a range of file offsets to send: this initial request
+will be for the ``whole file'', specified by a start and end offset
+both zero (for the end offset, zero will be interpreted by the
+server as ``until end of file''). The server replies by sending
+a sequence of data packets to the source address of the datagram,
+each packet containing the total file size, file checksum, some
+file data as well as the data size its offset within the file.
+This means that the client can have all the required information
+even in case of packet loss.
+
+The client waits for data from the server, rememebring which
+data it has received and which one has not arrived.  If all
+the data arrives, it calculates the checksum and decides
+whether it has received the file correctly, retrying if it has
+not.
+
+A timeout makes sure that the client does not wait forever in case of
+packet loss: if no data arrives for a predefined period, and some
+data is still missing, the client assumes that the server has stopped
+sending and requests retransmission of the packets it knows it has
+not received, then goes back to waiting for data.
+
+Note that this behaviour from the client can result in the server
+seeing more active clients than real clients in case of packet loss:
+clients may time out while the server is still sending, request
+retransmission which will be seen by the server as a new client:
+this is the reason why the UDP results collected by number of
+clients can show more active clients than real clients.
+
+If routers are present, they do not need anything particular as long
+as unicast routing between server and clients is set up correctly;
+we still ran our monitoring on routers to collect network bandwidth
+and other information.
 
 \subsection{Summarising data}
 \label{summaries}
