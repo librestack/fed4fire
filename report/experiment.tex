@@ -1355,6 +1355,48 @@ obtain a number of megabytes per second.
 A pre-filled cache database is available online together with the raw
 data~\cite{data}
 
+For routing data, we wanted to see the effect of multicast routing protocols
+by comparing the data going into a router with the data leaving the router;
+it makes less sense to average over multiple runs as each experiment proceeded
+at a different pace, and averaging only served to hide the changes in the
+data streams. Accordingly we used a different script, ``{\tt router-data}''
+to collect bandwidth utilisation data from several routers (in a single run)
+and produce a multi-column output showing the utilisation against the time
+since the start of the run. The usage is:
+
+\begin{verbatim}
+router-data SPEC [SPEC]... TARBALL
+\end{verbatim}
+
+\noindent
+where each ``SPEC'' is an interface specification of the form
+``router:interface:direction'' in which ``router'' is the number of
+the router (counted from 0 for the leftmost client LAN in the tree diagrams
+shown in this document, and proceeding left to right in the diagram until
+reaching the rightmost router, then continuing one level up, etc.  Therefore
+the 4 client LANs in an experiment with 3 levels of routers are connected
+to routers 0 to 3, then router 4 joins routers 0 and 1, and so on.
+
+An example output for the command:
+
+\begin{verbatim}
+router-data 6:server:rx 6:client:tx \
+4:server:rx 4:client:tx \
+0:server:rx 0:client:tx \
+S1R3L10H-vwall1-20220309204654-\
+multicast-immediate-2048-\
+20220311052100.tar.gz
+\end{verbatim}
+
+\noindent
+is shown in figure~\pref{router2} (truncated to fit in the page) and
+is available in the online data~\cite{data} (look for run number
+S1R3L10H-20220311052100).
+
+The ``make-online-summaries'' script in ~\cite{exp:scripts} contains many
+examples of analysing data, as well as showing how the summaries included
+in the online data~\cite{data} have been generated.
+
 \section{Important notes on repeating this experiment}
 \label{configuration}
 IPv6 requires multicast, however when preparing to run this experiment
