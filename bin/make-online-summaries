@@ -1,0 +1,387 @@
+#!/bin/bash
+
+# make summary data to upload to the online data repository
+# note: only selected data will be generated
+
+# usage: make-online-summaries SOURCE_DIR CACHE_DB OUTPUT_DIR
+
+if [ $# -ne 3 ]
+then
+    echo "Usage: `basename "$0"` SOURCE_DIR CACHE_DB OUTPUT_DIR" >&2
+    exit 1
+fi
+
+source_dir="$1"
+cache_db="$2"
+output_dir="$3"
+
+# OUTPUT_DIR must not already exist, and we must be able to create it
+mkdir "$output_dir" || exit 1
+
+data=( \
+    '-a run-time:Total time required by clients to obtain the data' \
+    '-k server-tx:Server network bandwidth (sent) by number of active clients' \
+    '-k server-load:Server load by number of active clients' \
+)
+
+exec 3>"$output_dir/index.html"
+echo '<html>' >&3
+echo '<body>' >&3
+
+echo '<p>' >&3
+echo 'Results collated by testbed:<br>' >&3
+echo '<table>' >&3
+echo '<tr><th>Testbed</th><th>Booted</th><th>Clients</th><th>Routers</th><th>Runs</th></tr>' >&3
+
+declare -A by_client counts
+
+for testbed in `ls "$source_dir" | egrep -v '\.(partial|test)\.' | cut -d- -f1-3 | uniq`
+do
+    name="${testbed%%-*}"
+    date="${testbed##*-}"
+    clients="${name#S1}"
+    routers=0
+    case "$clients" in
+	R*)
+	    clients="${clients#R}"
+	    routers="${clients%%L*}"
+	    clients="${clients#*L}"
+	    ;;
+	*)
+	    clients="${clients#L}"
+	    ;;
+    esac
+    clients="${clients%%:*}"
+    clients="${clients%%[A-Z]}"
+    if [ $routers -gt 1 ]
+    then
+	clients=`echo "$clients * (2 ^ ($routers - 1))" | bc`
+	routers=`echo "(2 ^ $routers) - 1" | bc`
+    fi
+    counts[$clients]=x
+    by_client[all-$clients]="${by_client[all-$clients]} $testbed"
+    [ $routers = 0 ] && by_client[single-$clients]="${by_client[single-$clients]} $testbed"
+    [ $routers = 1 ] && by_client[2lans-$clients]="${by_client[2lans-$clients]} $testbed"
+    [ $routers = 7 ] && by_client[3routers-$clients]="${by_client[3routers-$clients]} $testbed"
+    [ $routers = 0 ] || by_client[multiple-$clients]="${by_client[multiple-$clients]} $testbed"
+    echo "$testbed"
+    mkdir -p "$output_dir/$testbed"
+    R='<td><a href="'"$testbed/index.html"'">'
+    E='</a></td>'
+    booted="${date:0:4}-${date:4:2}-${date:6:2} ${date:8:2}:${date:10:2}:${date:12} UTC"
+    cycles=$(ls "$source_dir/$testbed-udp-random2-512-"* | egrep -v '\.(partial|test)\.' | wc -l)
+    echo "<tr>$R$name$E$R$booted$E$R$clients$E$R$routers$E$R$cycles$E</tr>" >&3
+    (
+	echo '<html>'
+	echo '<body>'
+	echo '<p>'
+	echo "Testbed name: $name<br>"
+	echo "Clients: $clients<br>"
+	echo "Routers: $routers<br>"
+	echo "Cycles ran on this testbed: $cycles<br>"
+	echo "&nbsp;<br>"
+	for item in "${data[@]}"
+	do
+	    opts="${item%%:*}"
+	    name="${opts#* }"
+	    desc="${item#*:}"
+	    h0='<a href="'"$name"
+	    h1='">'
+	    echo "$desc: $h0.html${h1}HTML</a>; $h0.txt${h1}TXT</a>; $h0.tex${h1}LaTeX</a><br>"
+	    ./experiments/bin/averages -Tp $opts "$cache_db" \
+		"$source_dir/$testbed-" > "$output_dir/$testbed/$name.txt" || exit 1
+	    ./experiments/bin/averages -Hp $opts "$cache_db" \
+		"$source_dir/$testbed-" > "$output_dir/$testbed/$name.html" || exit 1
+	    ./experiments/bin/averages -Lp $opts "$cache_db" \
+		"$source_dir/$testbed-" > "$output_dir/$testbed/$name.tex" || exit 1
+	done
+	echo '</p>'
+	echo '</body>'
+	echo '</html>'
+	exit 0
+    ) > "$output_dir/$testbed/index.html" || exit 1
+done
+
+echo '</table>' >&3
+echo '</p>' >&3
+echo
+
+echo '<p>' >&3
+echo 'Results collated by number of clients:<br>' >&3
+echo '<table>' >&3
+echo '<tr><th>Collection</th><th>Clients</th><th>Runs</th></tr>' >&3
+
+for clients in $(echo "${!counts[*]}" | tr ' ' '\n' | sort -n )
+do
+    for what in single multiple 2lans 3routers all
+    do
+	[ ".${by_client[$what-$clients]}" = . ] && continue;
+	case "$what" in
+	    single)   collection='Single LAN' ;;
+	    multiple) collection='Multiple LANs' ;;
+	    2lans)    collection='Two LANs' ;;
+	    3routers) collection='Multiple LANs' ;;
+	    all)      collection='All testbeds' ;;
+	esac
+	cycles=0
+	testbeds=()
+	prefixes=()
+	for testbed in ${by_client[$what-$clients]}
+	do
+	    cycles=$[ $cycles + $(ls "$source_dir/$testbed-udp-random2-512-"* | egrep -v '\.(partial|test)\.' | wc -l)]
+	    testbeds+=( "$testbed" )
+	    prefixes+=( "$source_dir/$testbed-" )
+	done
+	echo "$clients $what $cycles"
+	mkdir -p "$output_dir/$clients-$what"
+	R='<td><a href="'"$clients-$what/index.html"'">'
+	E='</a></td>'
+	echo "<tr>$R$collection$E$R$clients$E$R$cycles$E</tr>" >&3
+	(
+	    echo '<html>'
+	    echo '<body>'
+	    echo '<p>'
+	    echo "Clients: $clients<br>"
+	    echo "Testbeds:<br><ul>"
+	    for testbed in "${testbeds[@]}"
+	    do
+		echo "<li><a href="../$testbed/index.html">$testbed</a></li>"
+	    done
+	    echo "</ul><br>"
+	    echo "Cycles ran with this number of clients: $cycles<br>"
+	    echo "&nbsp;<br>"
+	    for item in "${data[@]}"
+	    do
+		opts="${item%%:*}"
+		name="${opts#* }"
+		desc="${item#*:}"
+		h0='<a href="'"$name"
+		h1='">'
+		echo "$desc: $h0.html${h1}HTML</a>; $h0.txt${h1}TXT</a>; $h0.tex${h1}LaTeX</a><br>"
+		./experiments/bin/averages -Tp $opts "$cache_db" \
+		    "${prefixes[@]}" >> "$output_dir/$clients-$what/$name.txt" || exit 1
+		./experiments/bin/averages -Hp $opts "$cache_db" \
+		    "${prefixes[@]}" >> "$output_dir/$clients-$what/$name.html" || exit 1
+		./experiments/bin/averages -Lp $opts "$cache_db" \
+		    "${prefixes[@]}" >> "$output_dir/$clients-$what/$name.tex" || exit 1
+	    done
+	    echo '</p>'
+	    echo '</body>'
+	    echo '</html>'
+	    exit 0
+	) > "$output_dir/$clients-$what/index.html" || exit 1
+    done
+done
+
+echo '</table>' >&3
+echo '</p>' >&3
+echo
+
+echo '<p>' >&3
+echo 'All results together:<br>' >&3
+echo '<table>' >&3
+echo '<tr><th>File size</th><th>Runs</th></tr>' >&3
+
+for size in 32 128 512 2048 0
+do
+    if [ $size == 0 ]
+    then
+	prnsize=All
+	szglob=''
+    else
+	prnsize=$size
+	szglob=-$size
+    fi
+    cycles=$(ls "$source_dir"/*-udp-random2$szglob-* | egrep -v '\.(partial|test)\.' | wc -l)
+    echo "$prnsize $cycles"
+    mkdir -p "$output_dir/size-$prnsize"
+    R='<td><a href="'"size-$prnsize/index.html"'">'
+    E='</a></td>'
+    echo "<tr>$R$prnsize$E$R$cycles$E</tr>" >&3
+    (
+	echo '<html>'
+	echo '<body>'
+	echo '<p>'
+	echo "File size: $prnsize<br>"
+	echo "Cycles ran with this file size: $cycles<br>"
+	echo "&nbsp;<br>"
+	for item in "${data[@]}"
+	do
+	    opts="${item%%:*}"
+	    name="${opts#* }"
+	    desc="${item#*:}"
+	    h0='<a href="'"$name"
+	    h1='">'
+	    echo "$desc: $h0.html${h1}HTML</a>; $h0.txt${h1}TXT</a>; $h0.tex${h1}LaTeX</a><br>"
+	    ./experiments/bin/averages -Tp -Z$size $opts "$cache_db" \
+		"$source_dir"/ >> "$output_dir/size-$prnsize/$name.txt" || exit 1
+	    ./experiments/bin/averages -Hp -Z$size $opts "$cache_db" \
+		"$source_dir"/ >> "$output_dir/size-$prnsize/$name.html" || exit 1
+	    ./experiments/bin/averages -Lp -Z$size $opts "$cache_db" \
+		"$source_dir"/ >> "$output_dir/size-$prnsize/$name.tex" || exit 1
+	done
+	echo '</p>'
+	echo '</body>'
+	echo '</html>'
+	exit 0
+    ) > "$output_dir/size-$prnsize/index.html" || exit 1
+done
+
+echo '</table>' >&3
+echo '</p>' >&3
+echo
+
+echo '<p>' >&3
+echo 'All results together, immediate, size 2048:<br>' >&3
+echo '<table>' >&3
+echo '<tr><th>Update</th><th>Runs</th></tr>' >&3
+
+for update in multicast scp tcp udp
+do
+    cycles=$(ls "$source_dir"/*-$update-immediate-2048-* | egrep -v '\.(partial|test)\.' | wc -l)
+    echo "$update $cycles"
+    mkdir -p "$output_dir/update-$update"
+    R='<td><a href="'"update-$update/index.html"'">'
+    E='</a></td>'
+    echo "<tr>$R$update$E$R$cycles$E</tr>" >&3
+    (
+	echo '<html>'
+	echo '<body>'
+	echo '<p>'
+	echo "Update: $update<br>"
+	echo "Schedule: immediate<br>"
+	echo "Size: 2048<br>"
+	echo "Cycles ran with this combination: $cycles<br>"
+	echo "&nbsp;<br>"
+	for item in "${data[@]}"
+	do
+	    opts="${item%%:*}"
+	    name="${opts#* }"
+	    desc="${item#*:}"
+	    h0='<a href="'"$name"
+	    h1='">'
+	    echo "$desc: $h0.html${h1}HTML</a>; $h0.txt${h1}TXT</a>; $h0.tex${h1}LaTeX</a><br>"
+	    ./experiments/bin/averages -Tp -Z2048 -U$update -Simmediate $opts "$cache_db" \
+		"$source_dir"/ >> "$output_dir/update-$update/$name.txt" || exit 1
+	    ./experiments/bin/averages -Hp -Z2048 -U$update -Simmediate $opts "$cache_db" \
+		"$source_dir"/ >> "$output_dir/update-$update/$name.html" || exit 1
+	    ./experiments/bin/averages -Lp -Z2048 -U$update -Simmediate $opts "$cache_db" \
+		"$source_dir"/ >> "$output_dir/update-$update/$name.tex" || exit 1
+	done
+	echo '</p>'
+	echo '</body>'
+	echo '</html>'
+	max=0
+	tx=()
+	while IFS="&$IFS" read nc rest
+	do
+	    case "$nc" in
+		[0-9]*)
+		    tx[$nc]="${rest//\\}"
+		    [ $max -lt $nc ] && max=$nc
+		    ;;
+	    esac
+	done < "$output_dir/update-$update/server-tx.tex"
+	load=()
+	while IFS="&$IFS" read -r nc rest
+	do
+	    case "$nc" in
+		[0-9]*)
+		    load[$nc]="${rest//\\}"
+		    [ $max -lt $nc ] && max=$nc
+		    ;;
+	    esac
+	done < "$output_dir/update-$update/server-load.tex"
+	(
+	    dots=false
+	    if [ $max -gt 51 ]
+	    then
+		dots=true
+		max=51
+	    fi
+	    nc=0
+	    echo "\\begin{tabular}{|r|rrrrr|rrrrr|}"
+	    echo "\\hline"
+	    echo " & \\multicolumn5{c|}{Network TX} & \\multicolumn5{c|}{Server load}\\\\"
+	    echo "{\\sc\\#clients}&{\\sc avg}&{\\sc\\#data}&{\\sc min}&{\\sc max}&{\\sc std}&{\\sc avg}&{\\sc\\#data}&{\\sc min}&{\\sc max}&{\\sc std}\\\\"
+	    echo "\\hline"
+	    while [ $nc -le $max ]
+	    do
+		t='- & - & - & - & -'
+		[ ".${tx[$nc]}" = . ] || t="${tx[$nc]}"
+		l='- & - & - & - & -'
+		[ ".${load[$nc]}" = . ] || l="${load[$nc]}"
+		echo "$nc & $t & $l \\\\"
+		nc=$[ $nc + 1 ]
+	    done
+	    $dots && echo " & \\multicolumn5{c|}{\\ldots} & \\multicolumn5{c|}{\\ldots}\\\\"
+	    echo "\\hline"
+	    echo "\\end{tabular}"
+	) > "tex/server-$update.tex"
+	exit 0
+    ) > "$output_dir/update-$update/index.html" || exit 1
+done
+
+echo '</table>' >&3
+echo '</p>' >&3
+echo
+
+echo '<p>' >&3
+echo 'Router results for selected multicast runs and routers<br>' >&3
+echo '<table>' >&3
+echo '<tr><th>Testbed</th><th>Run</th></tr>' >&3
+
+for size in 512 2048
+do
+    for frun in `ls "$source_dir"/S1R3*-multicast-immediate-$size-* | egrep -v '\.(partial|test)\.'`
+    do
+	[ -f "$frun" ] || continue
+	run="`basename "$frun"`"
+	run="${run%%.*}"
+	testbed="${run%%-*}"
+	when="${run##*-}"
+	echo "$testbed $when"
+	run="$testbed-$when"
+	mkdir -p "$output_dir/router-$run"
+	R='<td><a href="'"router-$run/index.html"'">'
+	E='</a></td>'
+	echo "<tr>$R$testbed$E$R$when$E</tr>" >&3
+	(
+	    echo '<html>'
+	    echo '<body>'
+	    echo '<p>'
+	    echo "Testved: $testbed<br>"
+	    echo "Update: multicast<br>"
+	    echo "Schedule: immediate<br>"
+	    echo "Size: $size<br>"
+	    echo "&nbsp;<br>"
+	    h0='<a href="'"router"
+	    h1='">'
+	    echo "$h0.html${h1}HTML</a><br>"
+	    echo "$h0.txt${h1}TXT</a><br>"
+	    echo "$h0.tex${h1}LaTeX</a><br>"
+	    ./experiments/bin/router-data -T \
+		6:server:rx 6:client:tx 4:server:rx 4:client:tx 0:server:rx 0:client:tx \
+		"$frun" >> "$output_dir/router-$run/router.txt" || exit 1
+	    ./experiments/bin/router-data -H \
+		6:server:rx 6:client:tx 4:server:rx 4:client:tx 0:server:rx 0:client:tx \
+		"$frun" >> "$output_dir/router-$run/router.html" || exit 1
+	    ./experiments/bin/router-data -L \
+		6:server:rx 6:client:tx 4:server:rx 4:client:tx 0:server:rx 0:client:tx \
+		"$frun" >> "$output_dir/router-$run/router.tex" || exit 1
+	    echo '</p>'
+	    echo '</body>'
+	    echo '</html>'
+	    exit 0
+	) > "$output_dir/router-$run/index.html" || exit 1
+    done
+done
+
+echo '</table>' >&3
+echo '</p>' >&3
+echo
+
+echo '</body>' >&3
+echo '</html>' >&3
+exec 3>&-
+
