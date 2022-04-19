@@ -2,25 +2,27 @@
 
 load_sleep=60
 copy_results=true
-copy_logs=false
+copy_logs=''
 copy_arg=''
 sizes=''
 schedules=''
 experiments=''
 default_duration=16
 really=true
+copy_data=''
 while [ $# -gt 0 ]
 do
     opt="$1"; shift
     case "$opt" in
 	-n|--no|--no-copy) copy_results=false ;;
-	-l|--logs|--copy-logs) copy_logs=true; copy_arg=copy ;;
+	-l|--logs|--copy-logs) copy_logs="$1"; shift; copy_arg=copy ;;
 	-s|--sleep) load_sleep="$1"; shift ;;
 	-d|--duration) default_duration="$1"; shift ;;
 	-z|--size) sizes="$sizes $1"; shift ;;
 	-w|--schedule) schedules="$schedules $1"; shift ;;
 	-e|--experiment) experiments="$experiments $1"; shift ;;
 	-p|--pretend) really=false ;;
+	-r|--rsync) copy_data="$1"; shift ;;
 	*) echo "Usage: $0 [options]" >&2
 	   echo "    --no-copy" >&2
 	   echo "    --copy-logs" >&2
@@ -32,6 +34,8 @@ do
 	   ;;
     esac
 done
+
+[ ".$copy_data" = . ] && { echo "Please specify --rsync URL to copy results" >&2; exit 1; }
 
 [ ".$sizes" = . ] && \
     sizes="`cat /tmp/experiment/sizes`"
@@ -214,20 +218,20 @@ do
 		# in theory rsync can fail, so let's try a few times...
 		for retry in 1 2 4 8 12 16 20 25 30 60 60 60
 		do
-		    rsync -avHP --inplace "$tarball" f4fresults.w42.org::f4f-results/ && break
+		    rsync -avHP --inplace "$tarball" "$copy_data/" && break
 		    msg "Sleeping $retry seconds before retrying"
 		    sleep $retry
 		done
 		rm "$tarball"
 	    fi
-	    if $copy_logs && $really
+	    if $really && [ ".$copy_logs" != . ]
 	    then
 		msg "Copying logs to server"
 		tarball="/tmp/$exp-$experiment-$schedule-$size-`TZ=GMT date +%Y%m%d%H%M%S`.logs.tar.gz"
 		tar czf "$tarball" -C /tmp/logs .
 		for retry in 1 2 4 8 12 16 20 25 30 60 60 60
 		do
-		    rsync -avHP --inplace "$tarball" f4fresults.w42.org::f4f-logs/ && break
+		    rsync -avHP --inplace "$tarball" "$copy_logs/" && break
 		    msg "Sleeping $retry seconds before retrying"
 		    sleep $retry
 		done

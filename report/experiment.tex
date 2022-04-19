@@ -991,15 +991,20 @@ director0$ /tmp/experiment/setup-all
 \end{small}
 
 The testbed is now ready to run the experiment by running a program on
-director0:
+director0 and specifying a ``rsync'' destination where it will copy
+the data it collects:
 
 \begin{small}
 \begin{verbatim}
 local$ ssh-experiment S1L8 director0
 director0$ cd /tmp/experiment
-director0$ ./run-experiment
+director0$ ./run-experiment --rsync DESTINATION
 \end{verbatim}
 \end{small}
+
+The destination must be set up as appropriate to receive the data.
+Other options to ``{\tt run-experiment}'' are normally not required;
+such options are documented in the script itself.
 
 If required, the ``{\tt run-experiment}'' program can run many times
 to obtain more data without additional setup overhead; no need to
