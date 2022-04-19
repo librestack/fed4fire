@@ -1,3 +1,8 @@
+#Librecast: IoT Software Updates over IPv6 Multicast Experiments
+#Fed4fire Plus Proposal number: F4Fp-SME-COD210601-05
+
+<hr />
+
 Preparation:
 
 Put the login.pem file in ~/data (this location is currently hardcoded)
@@ -172,3 +177,10 @@ lwmon -P- -R "$DST_DIR"/server0.multicast.immediate.128.S1R2L2.20211219135844
 
 See lwmon(1) for other options
 
+
+<hr />
+<img src="//www.fed4fire.eu/wp-content/uploads/sites/10/2017/03/fed4fire_logo-e1489343254776.png" alt="" class="aligncenter size-full wp-image-1855" width="301" height="70">
+<p class="bigbreak">
+<p>    
+<img src="//www.fed4fire.eu/wp-content/uploads/sites/10/2017/04/eu-ch-flag.jpg" style="margin-bottom:10px;" width="160px"> </p>
+This project was by <a href="https://www.fed4fire.eu/"> Fed4Fire Plus </a> whixh has received funding from the European Union’s Horizon 2020 research and innovation programme, which is co-funded by the European Commission and the Swiss State Secretariat for Education, Research and Innovation, under grant agreement No 732638.
