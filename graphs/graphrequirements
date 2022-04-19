@@ -1,0 +1,79 @@
+graphs required@
+
+Runtime
+
+1 line for tcp random 1,
+1 line for tcp rendom 2
+1 line for scp
+1 line for multicast
+
+x is runtime
+y is number of clients up to 50
+
+20 single LAN
+40 single LAN
+50 single LAN
+
+
+20 clients multilan
+40 clients multilan
+
+
+Server load multicast
+
+1 graph
+tx time
+x network tx time
+y clients
+
+1 graph server load
+x is average
+y is number of clients
+
+
+Server load scp
+
+1 graph
+tx time
+x network tx time
+y clients
+
+1 graph server load
+x is average
+y is number of clients
+
+server load tcp
+
+1 graph
+tx time
+x network tx time
+y clients
+
+1 graph server load
+x is average
+y is number of clients
+
+server load udp
+
+1 graph
+tx time
+x network tx time
+y clients
+
+1 graph server load
+x is average
+y is number of clients
+
+
+Server routing table
+
+lines
+6 server rx
+6 server tx
+4 server rx
+4 server tx
+
+0 server rx
+0 client tx
+x is time
+y is delay?  
