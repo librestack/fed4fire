@@ -9,7 +9,7 @@ schedules=''
 experiments=''
 default_duration=16
 really=true
-rsync=''
+copy_data=''
 while [ $# -gt 0 ]
 do
     opt="$1"; shift
