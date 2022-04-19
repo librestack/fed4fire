@@ -1155,8 +1155,10 @@ $ lwmon-to-sql [options] FILES | \
 \end{small}
 
 As described below in~\ref{summaries}, for this experiment we have developed
-a tool which calls {\tt lwmon-to-sql} in the appropriate way to import
-experiment results in a format suitable for further analysis.
+a tool which reads the lwmon data directly to create summaries, and uses a
+sqlite database as cache to speed up operation; this is not the full data
+as produced by {\tt lwmon-to-sql} but instead just the data needed to
+generate tables and graphs like the ones shown in this report.
 
 \subsection{Multicast update method}
 \label{iotupd}
@@ -1379,8 +1381,10 @@ The second group of columns are obtained by splitting the file name
 into its components, and interpreting the testbed name to determine
 the number of clients and routers.
 
-The decoded lwmon data for a particular element is accumulated in the
-``data'' table which contains the following columns:
+The decoded lwmon data for a particular element is accumulated in one
+of two tables, depending on whether the element depends on the number
+of active clients or not.  The ``data'' table contains data which
+does not depend on the number of clients and contains:
 
 \begin{small}
 \begin{verbatim}
@@ -1394,15 +1398,18 @@ square         float
 \end{verbatim}
 \end{small}
 
+The ``count'', ``total'' and ``square'' contain a summary of the
+data collected, which could appear multiple times in the same tarball
 Each data item can be present multiple times in the same tarball
 (for example, each client could contribute one element); these are
 all added together in the ``total'' column, and their squares are
 added in the ``square'' column; when selecting a tarball for
 processing, we can use this information to calculate averages and
-standard deviations.
+standard deviations. The ``min'' and ``max'' columns record the
+minimum and maximum data item found, respectively.
 
-Another table, ``summary'', contain information grouped by number of
-active; it has one extra column, ``n{\textunderscore}clients''.
+The other table, ``summary'', contain information grouped by number of
+active clients; it has one extra column, ``n{\textunderscore}clients''.
 
 The ``averages'' script produces averages from a specified subset of
 experiment runs, and also maintains the cache database.  The general
