@@ -90,8 +90,6 @@ the same as ("TIME=180"):
   time in minutes before the testbed expires, default is 120 (jfed's default)
 * AUTH=vwall1
   change autority (default: wvall2)
-* AUTH=grid5000
-  Change authority to GRID5000 (Separate testbed)
 * SUFFIX=A
   Add a suffix to the experiment name, which is generated from the number
   of routers and clients, if needed to make the name unique in the testbed

@@ -15,7 +15,7 @@ sub parse_tarball_name {
     $tb =~ /
 	(S\d+(?:R\d+)?L\d+)             # $1 topology
 	([A-Z]*)-                       # $2 suffix to make unique
-	(\w+)-                          # $3 testbed e.g. vwall1, vwall2, grid5000
+	(\w+)-                          # $3 testbed e.g. vwall1, vwall2
 	(\d{14})-                       # $4 boot timestamp YYYYMMDDHHMMSS
 	(multicast|scp|tcp|udp)-        # $5 update method
 	(immediate|random|random2)-     # $6 schedule

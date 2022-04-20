@@ -23,12 +23,13 @@ my %authority = (
 	1
 	0
     )],
-    grid5000 => [qw(
-	urn:publicid:IDN+am.grid5000.fr+authority+am
-	urn:publicid:IDN+am.grid5000.fr+image+kadeploy3:ubuntu2004-x64-min
-	0
-	1
-    )],
+# DO NOT UNCOMMENT before discussing with grid5000
+#    grid5000 => [qw(
+#	urn:publicid:IDN+am.grid5000.fr+authority+am
+#	urn:publicid:IDN+am.grid5000.fr+image+kadeploy3:ubuntu2004-x64-min
+#	0
+#	1
+#    )],
 
 );
 
